@@ -16,7 +16,7 @@ async function bootstrap() {
       .filter(Boolean),
   ]);
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => {
       callback(null, !origin || allowedOrigins.has(origin));
     },
     exposedHeaders: ["Content-Disposition"],
