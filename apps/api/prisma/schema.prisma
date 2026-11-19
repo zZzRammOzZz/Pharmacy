@@ -1,0 +1,233 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model PlatformUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Tenant {
+  id            String         @id @default(cuid())
+  name          String
+  code          String         @unique
+  email         String?
+  phone         String?
+  address       String?
+  status        String         @default("active")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  licenses      License[]
+  users         TenantUser[]
+  medicines     Medicine[]
+  batches       StockBatch[]
+  patients      Patient[]
+  prescriptions Prescription[]
+  sales         Sale[]
+  suppliers     Supplier[]
+  purchases     Purchase[]
+  movements     StockMovement[]
+}
+
+model License {
+  id          String    @id @default(cuid())
+  keyId       String    @unique
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan        String
+  seats       Int
+  features    String
+  issuedAt    DateTime
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  payloadJson String
+  signature   String
+  createdAt   DateTime  @default(now())
+}
+
+model TenantUser {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String
+  name         String
+  role         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, email])
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  contactName  String?
+  phone        String?
+  email        String?
+  address      String?
+  taxNumber    String?
+  paymentTerms String?
+  notes        String?
+  createdAt    DateTime   @default(now())
+  purchases    Purchase[]
+}
+
+model Medicine {
+  id              String              @id @default(cuid())
+  tenantId        String
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sku             String
+  name            String
+  barcode         String?
+  medicineType    String              @default("tablet")
+  genericName     String?
+  form            String?
+  strength        String?
+  unitPriceCents  Int
+  reorderLevel    Int                 @default(10)
+  createdAt       DateTime            @default(now())
+  batches         StockBatch[]
+  prescriptionItems PrescriptionItem[]
+  saleItems       SaleItem[]
+  purchaseLines   PurchaseLine[]
+  movements       StockMovement[]
+
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
+}
+
+model StockBatch {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  medicineId  String
+  medicine    Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  batchNumber String
+  serialNumber String?
+  quantity    Int
+  expiryDate  DateTime
+  costCents   Int
+  supplierId  String?
+  receivedAt  DateTime @default(now())
+  movements   StockMovement[]
+  purchaseLines PurchaseLine[]
+
+  @@unique([tenantId, serialNumber])
+}
+
+model Purchase {
+  id         String         @id @default(cuid())
+  tenantId   String
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId String?
+  supplier   Supplier?      @relation(fields: [supplierId], references: [id])
+  reference  String
+  notes      String?
+  createdAt  DateTime       @default(now())
+  lines      PurchaseLine[]
+}
+
+model PurchaseLine {
+  id           String     @id @default(cuid())
+  purchaseId   String
+  purchase     Purchase   @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  medicineId   String
+  medicine     Medicine   @relation(fields: [medicineId], references: [id])
+  batchId      String
+  batch        StockBatch @relation(fields: [batchId], references: [id])
+  quantity     Int
+  costCents    Int
+  batchNumber  String
+  serialNumber String?
+  expiryDate   DateTime
+}
+
+model StockMovement {
+  id         String     @id @default(cuid())
+  tenantId   String
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  medicineId String
+  medicine   Medicine   @relation(fields: [medicineId], references: [id])
+  batchId    String
+  batch      StockBatch @relation(fields: [batchId], references: [id])
+  kind       String
+  quantity   Int
+  reason     String?
+  note       String?
+  createdAt  DateTime   @default(now())
+}
+
+model Patient {
+  id            String         @id @default(cuid())
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  phone         String?
+  sex           String?
+  dateOfBirth   DateTime?
+  nationalId    String?
+  address       String?
+  allergies     String?
+  notes         String?
+  createdAt     DateTime       @default(now())
+  prescriptions Prescription[]
+  sales         Sale[]
+}
+
+model Prescription {
+  id         String             @id @default(cuid())
+  tenantId   String
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId  String
+  patient    Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorName String?
+  status     String             @default("pending")
+  notes      String?
+  createdAt  DateTime           @default(now())
+  items      PrescriptionItem[]
+}
+
+model PrescriptionItem {
+  id             String       @id @default(cuid())
+  prescriptionId String
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  medicineId     String
+  medicine       Medicine     @relation(fields: [medicineId], references: [id])
+  quantity       Int
+  dosage         String?
+}
+
+model Sale {
+  id         String     @id @default(cuid())
+  tenantId   String
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receiptNo  String
+  patientId  String?
+  patient    Patient?   @relation(fields: [patientId], references: [id])
+  totalCents Int
+  createdAt  DateTime   @default(now())
+  items      SaleItem[]
+
+  @@unique([tenantId, receiptNo])
+}
+
+model SaleItem {
+  id             String   @id @default(cuid())
+  saleId         String
+  sale           Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  medicineId     String
+  medicine       Medicine @relation(fields: [medicineId], references: [id])
+  quantity       Int
+  unitPriceCents Int
+  lineCents      Int
+}
