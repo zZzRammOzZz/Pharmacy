@@ -10,6 +10,7 @@ async function bootstrap() {
     "http://localhost:3000",
     "http://localhost:3001",
     "https://admin-phi-dun-65.vercel.app",
+    "https://counter-tau-nine.vercel.app",
     ...(process.env.CORS_ORIGINS || "")
       .split(",")
       .map((origin) => origin.trim())
@@ -17,7 +18,7 @@ async function bootstrap() {
   ]);
   app.enableCors({
     origin: (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => {
-      callback(null, !origin || allowedOrigins.has(origin));
+      callback(null, !origin || allowedOrigins.has(origin) || isVercelApp(origin));
     },
     exposedHeaders: ["Content-Disposition"],
   });
@@ -31,6 +32,15 @@ async function bootstrap() {
   const port = Number(process.env.PORT || 4000);
   await app.listen(port);
   console.log(`PharmacyOS API listening on http://localhost:${port}/api`);
+}
+
+function isVercelApp(origin: string) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" && url.hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
 }
 
 bootstrap();
