@@ -1,4 +1,9 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+function apiRoot() {
+  const raw = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api").replace(/\/$/, "");
+  return raw.endsWith("/api") ? raw : `${raw}/api`;
+}
+
+export const API_URL = apiRoot();
 
 export type License = {
   id: string;
