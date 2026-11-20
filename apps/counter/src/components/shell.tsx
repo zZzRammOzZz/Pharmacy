@@ -6,9 +6,9 @@ import { Bootstrap, Section } from "@/lib/types";
 
 const titles: Record<Section, { title: string; detail: string }> = {
   today: { title: "Shift", detail: "Takings, reorders, and expiries for this pharmacy" },
-  register: { title: "Register", detail: "Build a sale and take payment" },
+  register: { title: "Register", detail: "Cash in dollars or lira, card, or charge it to the client’s account" },
   stock: { title: "Stock", detail: "Catalog, purchases, adjustments, and waste" },
-  patients: { title: "Clients", detail: "Profiles, allergies, and what each person has bought" },
+  patients: { title: "Clients", detail: "Profiles, receipts, refunds, and replacements" },
   prescriptions: { title: "Prescriptions", detail: "Queue, dispense, and file new scripts" },
   suppliers: { title: "Suppliers", detail: "Profiles and the invoices received from each wholesaler" },
 };

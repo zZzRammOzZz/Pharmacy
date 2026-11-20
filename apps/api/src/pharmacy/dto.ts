@@ -198,7 +198,13 @@ export class CreatePrescriptionDto {
   items!: LineDto[];
 }
 
-export class CreateSaleDto {
+export class TakePaymentDto {
+  @IsOptional()
+  @IsIn(["cash_usd", "cash_ll", "card", "credit"])
+  paymentMethod?: string;
+}
+
+export class CreateSaleDto extends TakePaymentDto {
   @IsOptional()
   @IsString()
   patientId?: string;
@@ -208,6 +214,63 @@ export class CreateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => LineDto)
   items!: LineDto[];
+}
+
+export class SetRateDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  llPerUsd!: number;
+}
+
+export class AccountPaymentDto {
+  @IsIn(["cash_usd", "cash_ll", "card"])
+  method!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  amountCents!: number;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+export class RefundSaleDto {
+  @IsString()
+  saleItemId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+export class ReplaceSaleDto {
+  @IsString()
+  saleItemId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @IsString()
+  medicineId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  replacementQuantity!: number;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 }
 
 export class CreateSupplierDto {

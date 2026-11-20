@@ -19,3 +19,31 @@ textarea:focus {
   outline: 2px solid #0f6b4c;
   outline-offset: 0;
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .client-copy,
+  .print-sheet,
+  .client-copy *,
+  .print-sheet * {
+    visibility: visible;
+  }
+
+  .client-copy,
+  .print-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: 0;
+    background: #fff;
+  }
+
+  .client-copy .no-print,
+  .print-sheet .no-print {
+    display: none !important;
+  }
+}

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, clock, money, Session } from "@/lib/api";
+import { api, clock, money, paymentLabel, Session } from "@/lib/api";
 import { Medicine, Patient, Sale } from "@/lib/types";
+import { PaymentChoice } from "./payment";
+import { ReceiptSheet, saleBalance, saleMarks } from "./receipt";
 import { Notice, control } from "./ui";
 
 type Line = { medicine: Medicine; quantity: number };
@@ -17,7 +19,10 @@ export function Register({ session }: { session: Session }) {
   const [patientId, setPatientId] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
-  const [lastSale, setLastSale] = useState<Sale | null>(null);
+  const [openSale, setOpenSale] = useState<Sale | null>(null);
+  const [autoPrint, setAutoPrint] = useState(false);
+  const [method, setMethod] = useState("cash_usd");
+  const [rate, setRate] = useState("");
 
   async function load() {
     const [meds, people, recent] = await Promise.all([
@@ -28,12 +33,22 @@ export function Register({ session }: { session: Session }) {
     setMedicines(meds);
     setPatients(people);
     setSales(recent);
+    setOpenSale((current) => (current ? recent.find((row) => row.id === current.id) ?? current : null));
   }
 
   useEffect(() => {
     load().catch((err: Error) => setError(err.message));
+    api<{ llPerUsd: number }>("/pharmacy/till", session)
+      .then((till) => setRate(till.llPerUsd ? String(till.llPerUsd) : ""))
+      .catch(() => undefined);
     searchRef.current?.focus();
   }, []);
+
+  async function saveRate(next: string) {
+    const llPerUsd = Number(next);
+    if (!Number.isInteger(llPerUsd) || llPerUsd < 1) return;
+    await api("/pharmacy/till", session, { method: "PATCH", body: JSON.stringify({ llPerUsd }) });
+  }
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -51,7 +66,6 @@ export function Register({ session }: { session: Session }) {
       return;
     }
     setError("");
-    setLastSale(null);
     setLines((currentLines) => {
       const existing = currentLines.find((line) => line.medicine.id === medicine.id);
       if (!existing) return [...currentLines, { medicine, quantity: 1 }];
@@ -83,17 +97,28 @@ export function Register({ session }: { session: Session }) {
 
   async function charge() {
     if (lines.length === 0) return;
+    if (method === "credit" && !patientId) {
+      setError("Choose a client to put this on account.");
+      return;
+    }
+    if (method === "cash_ll" && (!Number.isInteger(Number(rate)) || Number(rate) < 1)) {
+      setError("Set how many lira equal one dollar.");
+      return;
+    }
     setPending(true);
     setError("");
     try {
+      if (method === "cash_ll") await saveRate(rate);
       const sale = await api<Sale>("/pharmacy/sales", session, {
         method: "POST",
         body: JSON.stringify({
           patientId: patientId || undefined,
+          paymentMethod: method,
           items: lines.map((line) => ({ medicineId: line.medicine.id, quantity: line.quantity })),
         }),
       });
-      setLastSale(sale);
+      setOpenSale(sale);
+      setAutoPrint(true);
       setLines([]);
       setPatientId("");
       await load();
@@ -197,33 +222,57 @@ export function Register({ session }: { session: Session }) {
               <span className="text-sm text-muted">Total</span>
               <span className="text-xl font-semibold tabular-nums">{money(total)}</span>
             </div>
+            <PaymentChoice
+              method={method}
+              onMethod={setMethod}
+              rate={rate}
+              onRate={setRate}
+              onRateCommit={(next) => saveRate(next).catch((err: Error) => setError(err.message))}
+              totalCents={total}
+              allowCredit={Boolean(patientId)}
+            />
             <div className="mt-3"><Notice message={error} /></div>
-            {lastSale ? (
-              <p className="mt-3 rounded-sm border border-[#cfe3d8] bg-[#f3faf6] px-3 py-2 text-sm text-mossdeep">
-                {lastSale.receiptNo} recorded · {money(lastSale.totalCents)}
-              </p>
-            ) : null}
             <button
               className="mt-3 h-10 w-full rounded-sm bg-moss text-sm font-medium text-white disabled:bg-stone-300"
-              disabled={pending || lines.length === 0}
+              disabled={pending || lines.length === 0 || (method === "credit" && !patientId)}
               onClick={charge}
             >
-              {pending ? "Recording sale…" : "Take payment"}
+              {pending ? "Recording sale…" : method === "credit" ? "Charge to account" : "Take payment"}
             </button>
           </div>
         </aside>
+        {openSale ? (
+          <ReceiptSheet
+            session={session}
+            sale={openSale}
+            pharmacy={session.user.tenant.name}
+            medicines={medicines}
+            autoPrint={autoPrint}
+            onPrinted={() => setAutoPrint(false)}
+            onClose={() => setOpenSale(null)}
+            onChange={(sale) => {
+              setOpenSale(sale);
+              setAutoPrint(false);
+              load().catch((err: Error) => setError(err.message));
+            }}
+          />
+        ) : null}
         <section className="rounded-sm border border-line bg-white">
           <h2 className="border-b border-line px-4 py-2.5 text-sm font-semibold">Recent receipts</h2>
           <ul>
-            {sales.slice(0, 6).map((sale) => (
-              <li key={sale.id} className="flex items-baseline justify-between gap-3 border-b border-line px-4 py-2 text-sm last:border-b-0">
-                <span className="min-w-0">
-                  <span className="font-medium">{sale.receiptNo}</span>
-                  <span className="ml-2 text-xs text-muted">{clock(sale.createdAt)} · {sale.items.map((item) => `${item.medicine.name} × ${item.quantity}`).join(", ")}</span>
-                </span>
-                <span className="tabular-nums">{money(sale.totalCents)}</span>
+            {sales.slice(0, 8).map((sale) => (
+              <li key={sale.id} className="border-b border-line last:border-b-0">
+                <button className="flex w-full items-baseline justify-between gap-3 px-4 py-2 text-left text-sm hover:bg-[#f6f8f7]" onClick={() => { setOpenSale(sale); setAutoPrint(false); }}>
+                  <span className="min-w-0">
+                    <span className="font-medium">{sale.receiptNo}</span>
+                    <span className="ml-2 text-xs text-muted">{sale.patient?.name || "Walk-in"} · {paymentLabel(sale.paymentMethod)} · {clock(sale.createdAt)}</span>
+                    {saleMarks(sale).map((mark) => <span key={mark} className="ml-2 text-[11px] font-medium text-[#8a3b32]">{mark}</span>)}
+                  </span>
+                  <span className="tabular-nums">{money(saleBalance(sale))}</span>
+                </button>
               </li>
             ))}
+            {sales.length === 0 ? <li className="px-4 py-6 text-sm text-stone-500">No receipts yet.</li> : null}
           </ul>
         </section>
       </div>

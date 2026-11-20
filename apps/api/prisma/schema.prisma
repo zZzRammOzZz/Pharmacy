@@ -23,6 +23,7 @@ model Tenant {
   phone         String?
   address       String?
   status        String         @default("active")
+  llPerUsd      Int            @default(0)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   licenses      License[]
@@ -35,6 +36,8 @@ model Tenant {
   suppliers     Supplier[]
   purchases     Purchase[]
   movements     StockMovement[]
+  saleEvents    SaleEvent[]
+  accountPayments AccountPayment[]
 }
 
 model License {
@@ -101,6 +104,7 @@ model Medicine {
   saleItems       SaleItem[]
   purchaseLines   PurchaseLine[]
   movements       StockMovement[]
+  eventLines      SaleEventLine[]
 
   @@unique([tenantId, sku])
   @@unique([tenantId, barcode])
@@ -121,6 +125,7 @@ model StockBatch {
   receivedAt  DateTime @default(now())
   movements   StockMovement[]
   purchaseLines PurchaseLine[]
+  saleLines   SaleLineBatch[]
 
   @@unique([tenantId, serialNumber])
 }
@@ -182,6 +187,7 @@ model Patient {
   createdAt     DateTime       @default(now())
   prescriptions Prescription[]
   sales         Sale[]
+  accountPayments AccountPayment[]
 }
 
 model Prescription {
@@ -212,22 +218,78 @@ model Sale {
   tenantId   String
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   receiptNo  String
-  patientId  String?
-  patient    Patient?   @relation(fields: [patientId], references: [id])
-  totalCents Int
-  createdAt  DateTime   @default(now())
+  patientId     String?
+  patient       Patient?   @relation(fields: [patientId], references: [id])
+  totalCents    Int
+  paymentMethod String     @default("cash_usd")
+  llPerUsd      Int?
+  llAmount      Int?
+  createdAt     DateTime   @default(now())
   items      SaleItem[]
+  events     SaleEvent[]
 
   @@unique([tenantId, receiptNo])
 }
 
 model SaleItem {
-  id             String   @id @default(cuid())
+  id             String          @id @default(cuid())
   saleId         String
-  sale           Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale           Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
   medicineId     String
-  medicine       Medicine @relation(fields: [medicineId], references: [id])
+  medicine       Medicine        @relation(fields: [medicineId], references: [id])
   quantity       Int
   unitPriceCents Int
   lineCents      Int
+  origin         String          @default("sale")
+  batches        SaleLineBatch[]
+}
+
+model SaleLineBatch {
+  id         String     @id @default(cuid())
+  saleItemId String
+  saleItem   SaleItem   @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+  batchId    String
+  batch      StockBatch @relation(fields: [batchId], references: [id])
+  quantity   Int
+  returned   Int        @default(0)
+}
+
+model SaleEvent {
+  id          String          @id @default(cuid())
+  tenantId    String
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  saleId      String
+  sale        Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  kind        String
+  note        String?
+  amountCents Int
+  createdAt   DateTime        @default(now())
+  lines       SaleEventLine[]
+}
+
+model SaleEventLine {
+  id             String    @id @default(cuid())
+  eventId        String
+  event          SaleEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  saleItemId     String?
+  medicineId     String
+  medicine       Medicine  @relation(fields: [medicineId], references: [id])
+  direction      String
+  quantity       Int
+  unitPriceCents Int
+  lineCents      Int
+}
+
+model AccountPayment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  method      String
+  amountCents Int
+  llPerUsd    Int?
+  llAmount    Int?
+  note        String?
+  createdAt   DateTime @default(now())
 }

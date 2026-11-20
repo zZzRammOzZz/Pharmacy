@@ -42,6 +42,21 @@ export function money(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+export function lira(amount: number) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(amount);
+}
+
+export function liraOf(cents: number, rate: number) {
+  return Math.round((cents / 100) * rate);
+}
+
+export function paymentLabel(method?: string | null) {
+  if (method === "cash_ll") return "Cash LL";
+  if (method === "card") return "Card";
+  if (method === "credit") return "On account";
+  return "Cash USD";
+}
+
 export function when(value: string) {
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value));
 }

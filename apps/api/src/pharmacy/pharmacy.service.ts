@@ -20,7 +20,12 @@ import {
   UpdateSupplierDto,
   AdjustmentDto,
   CreatePurchaseDto,
+  AccountPaymentDto,
   CreateSaleDto,
+  RefundSaleDto,
+  ReplaceSaleDto,
+  SetRateDto,
+  TakePaymentDto,
   CreateStaffDto,
   CreateSupplierDto,
   WasteDto,
@@ -76,15 +81,26 @@ export class PharmacyService {
   }
 
   async bootstrap(user: StaffPrincipal) {
-    const [medicines, patientCount, pendingPrescriptions, salesToday] = await Promise.all([
+    const today = { gte: startOfToday() };
+    const settled = { tenantId: user.tenantId, paymentMethod: { not: "credit" } };
+    const [medicines, patientCount, pendingPrescriptions, receiptsToday, salesToday, adjustmentsToday, accountToday, rate] = await Promise.all([
       this.medicines(user),
       this.prisma.patient.count({ where: { tenantId: user.tenantId } }),
       this.prisma.prescription.count({ where: { tenantId: user.tenantId, status: "pending" } }),
+      this.prisma.sale.count({ where: { tenantId: user.tenantId, createdAt: today } }),
       this.prisma.sale.aggregate({
-        where: { tenantId: user.tenantId, createdAt: { gte: startOfToday() } },
+        where: { ...settled, createdAt: today },
         _sum: { totalCents: true },
-        _count: true,
       }),
+      this.prisma.saleEvent.aggregate({
+        where: { tenantId: user.tenantId, createdAt: today, sale: { paymentMethod: { not: "credit" } } },
+        _sum: { amountCents: true },
+      }),
+      this.prisma.accountPayment.aggregate({
+        where: { tenantId: user.tenantId, createdAt: today },
+        _sum: { amountCents: true },
+      }),
+      this.prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { llPerUsd: true } }),
     ]);
     return {
       medicines,
@@ -108,7 +124,11 @@ export class PharmacyService {
       ),
       patientCount,
       pendingPrescriptions,
-      salesToday: { count: salesToday._count, totalCents: salesToday._sum.totalCents || 0 },
+      llPerUsd: rate?.llPerUsd || 0,
+      salesToday: {
+        count: receiptsToday,
+        totalCents: (salesToday._sum.totalCents || 0) + (adjustmentsToday._sum.amountCents || 0) + (accountToday._sum.amountCents || 0),
+      },
     };
   }
 
@@ -340,17 +360,25 @@ export class PharmacyService {
   async patientProfile(user: StaffPrincipal, id: string) {
     assertFeature(user, "patients");
     const patient = await this.ownedPatient(user.tenantId, id);
-    const [sales, saleStats, prescriptions] = await Promise.all([
+    const [sales, ledger, payments, paymentSum, prescriptions] = await Promise.all([
       this.prisma.sale.findMany({
         where: { tenantId: user.tenantId, patientId: id },
-        include: { items: { include: { medicine: true } } },
+        include: saleDetail,
         orderBy: { createdAt: "desc" },
-        take: 12,
+        take: 40,
       }),
-      this.prisma.sale.aggregate({
+      this.prisma.sale.findMany({
         where: { tenantId: user.tenantId, patientId: id },
-        _sum: { totalCents: true },
-        _count: true,
+        select: { paymentMethod: true, totalCents: true, events: { select: { amountCents: true } } },
+      }),
+      this.prisma.accountPayment.findMany({
+        where: { tenantId: user.tenantId, patientId: id },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      }),
+      this.prisma.accountPayment.aggregate({
+        where: { tenantId: user.tenantId, patientId: id },
+        _sum: { amountCents: true },
       }),
       user.features.includes("prescriptions")
         ? this.prisma.prescription.findMany({
@@ -361,12 +389,17 @@ export class PharmacyService {
           })
         : Promise.resolve([]),
     ]);
+    const received = paymentSum._sum.amountCents || 0;
+    const settledNet = ledger.filter((sale) => sale.paymentMethod !== "credit").reduce((sum, sale) => sum + netOf(sale), 0);
+    const creditNet = ledger.filter((sale) => sale.paymentMethod === "credit").reduce((sum, sale) => sum + netOf(sale), 0);
     return {
       ...patient,
       sales,
+      payments,
       prescriptions,
-      saleCount: saleStats._count,
-      spentCents: saleStats._sum.totalCents || 0,
+      saleCount: ledger.length,
+      spentCents: settledNet + received,
+      owedCents: creditNet - received,
     };
   }
 
@@ -421,7 +454,36 @@ export class PharmacyService {
     });
   }
 
-  async dispense(user: StaffPrincipal, id: string) {
+  async updatePrescription(user: StaffPrincipal, id: string, body: CreatePrescriptionDto) {
+    assertFeature(user, "prescriptions");
+    assertRole(user, ["owner", "pharmacist"]);
+    const existing = await this.prisma.prescription.findFirst({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw new NotFoundException("Prescription not found");
+    if (existing.status !== "pending") throw new BadRequestException("A dispensed prescription cannot be changed");
+    await this.ownedPatient(user.tenantId, body.patientId);
+    for (const item of body.items) await this.ownedMedicine(user.tenantId, item.medicineId);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.prescriptionItem.deleteMany({ where: { prescriptionId: id } });
+      return tx.prescription.update({
+        where: { id },
+        data: {
+          patientId: body.patientId,
+          doctorName: body.doctorName?.trim() || null,
+          notes: body.notes?.trim() || null,
+          items: {
+            create: body.items.map((item) => ({
+              medicineId: item.medicineId,
+              quantity: item.quantity,
+              dosage: item.dosage?.trim() || null,
+            })),
+          },
+        },
+        include: { patient: true, items: { include: { medicine: true } } },
+      });
+    });
+  }
+
+  async dispense(user: StaffPrincipal, id: string, body: TakePaymentDto = {}) {
     assertFeature(user, "prescriptions");
     assertRole(user, ["owner", "pharmacist"]);
     return this.prisma.$transaction(async (tx) => {
@@ -433,21 +495,24 @@ export class PharmacyService {
       if (prescription.status !== "pending") throw new BadRequestException("Prescription is already closed");
       const saleItems = [];
       for (const item of prescription.items) {
-        await consumeStock(tx, user.tenantId, item.medicineId, item.quantity);
+        const takes = await consumeStock(tx, user.tenantId, item.medicineId, item.quantity);
         saleItems.push({
           medicineId: item.medicineId,
           quantity: item.quantity,
           unitPriceCents: item.medicine.unitPriceCents,
           lineCents: item.medicine.unitPriceCents * item.quantity,
+          batches: { create: takes },
         });
       }
       const totalCents = saleItems.reduce((sum, item) => sum + item.lineCents, 0);
+      const tender = await paymentFields(tx, user.tenantId, body.paymentMethod || "cash_usd", totalCents, prescription.patientId);
       const sale = await tx.sale.create({
         data: {
           tenantId: user.tenantId,
           receiptNo: await nextReceipt(tx, user.tenantId),
           patientId: prescription.patientId,
           totalCents,
+          ...tender,
           items: { create: saleItems },
         },
       });
@@ -460,10 +525,15 @@ export class PharmacyService {
     assertFeature(user, "sales");
     return this.prisma.sale.findMany({
       where: { tenantId: user.tenantId },
-      include: { items: { include: { medicine: true } }, patient: true },
+      include: saleDetail,
       orderBy: { createdAt: "desc" },
       take: 50,
     });
+  }
+
+  async sale(user: StaffPrincipal, id: string) {
+    assertFeature(user, "sales");
+    return this.ownedSale(user.tenantId, id);
   }
 
   async createSale(user: StaffPrincipal, body: CreateSaleDto) {
@@ -477,25 +547,159 @@ export class PharmacyService {
           where: { id: item.medicineId, tenantId: user.tenantId },
         });
         if (!medicine) throw new NotFoundException("Medicine not found");
-        await consumeStock(tx, user.tenantId, medicine.id, item.quantity);
+        const takes = await consumeStock(tx, user.tenantId, medicine.id, item.quantity);
         saleItems.push({
           medicineId: medicine.id,
           quantity: item.quantity,
           unitPriceCents: medicine.unitPriceCents,
           lineCents: medicine.unitPriceCents * item.quantity,
+          batches: { create: takes },
         });
       }
+      const totalCents = saleItems.reduce((sum, item) => sum + item.lineCents, 0);
+      const tender = await paymentFields(tx, user.tenantId, body.paymentMethod || "cash_usd", totalCents, body.patientId);
       return tx.sale.create({
         data: {
           tenantId: user.tenantId,
           receiptNo: await nextReceipt(tx, user.tenantId),
           patientId: body.patientId,
-          totalCents: saleItems.reduce((sum, item) => sum + item.lineCents, 0),
+          totalCents,
+          ...tender,
           items: { create: saleItems },
         },
-        include: { items: { include: { medicine: true } } },
+        include: saleDetail,
       });
     });
+  }
+
+  async till(user: StaffPrincipal) {
+    assertFeature(user, "sales");
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { llPerUsd: true } });
+    return { llPerUsd: tenant?.llPerUsd || 0 };
+  }
+
+  async setTill(user: StaffPrincipal, body: SetRateDto) {
+    assertFeature(user, "sales");
+    assertRole(user, ["owner", "pharmacist", "cashier"]);
+    await this.prisma.tenant.update({ where: { id: user.tenantId }, data: { llPerUsd: body.llPerUsd } });
+    return { llPerUsd: body.llPerUsd };
+  }
+
+  async receivePayment(user: StaffPrincipal, patientId: string, body: AccountPaymentDto) {
+    assertFeature(user, "sales");
+    assertRole(user, ["owner", "pharmacist", "cashier"]);
+    await this.ownedPatient(user.tenantId, patientId);
+    const tender = await paymentFields(this.prisma, user.tenantId, body.method, body.amountCents, patientId);
+    await this.prisma.accountPayment.create({
+      data: {
+        tenantId: user.tenantId,
+        patientId,
+        method: tender.paymentMethod,
+        amountCents: body.amountCents,
+        llPerUsd: tender.llPerUsd,
+        llAmount: tender.llAmount,
+        note: blank(body.note),
+      },
+    });
+    return this.patientProfile(user, patientId);
+  }
+
+  async refundSale(user: StaffPrincipal, id: string, body: RefundSaleDto) {
+    assertFeature(user, "sales");
+    assertRole(user, ["owner", "pharmacist", "cashier"]);
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await this.ownedSale(user.tenantId, id, tx);
+      const item = sale.items.find((line) => line.id === body.saleItemId);
+      if (!item) throw new NotFoundException("That line is not on this receipt");
+      const left = item.quantity - returnedQty(sale, item.id);
+      if (body.quantity > left) throw new BadRequestException(left > 0 ? `Only ${left} can be refunded` : "That line is already fully refunded");
+      await returnStock(tx, user.tenantId, item.medicineId, body.quantity, item.batches, sale.receiptNo);
+      await tx.saleEvent.create({
+        data: {
+          tenantId: user.tenantId,
+          saleId: sale.id,
+          kind: "refund",
+          note: blank(body.note),
+          amountCents: -item.unitPriceCents * body.quantity,
+          lines: {
+            create: {
+              saleItemId: item.id,
+              medicineId: item.medicineId,
+              direction: "return",
+              quantity: body.quantity,
+              unitPriceCents: item.unitPriceCents,
+              lineCents: -item.unitPriceCents * body.quantity,
+            },
+          },
+        },
+      });
+      return this.ownedSale(user.tenantId, id, tx);
+    });
+  }
+
+  async replaceSale(user: StaffPrincipal, id: string, body: ReplaceSaleDto) {
+    assertFeature(user, "sales");
+    assertRole(user, ["owner", "pharmacist", "cashier"]);
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await this.ownedSale(user.tenantId, id, tx);
+      const item = sale.items.find((line) => line.id === body.saleItemId);
+      if (!item) throw new NotFoundException("That line is not on this receipt");
+      if (body.medicineId === item.medicineId) throw new BadRequestException("Choose a different medicine to replace it with");
+      const left = item.quantity - returnedQty(sale, item.id);
+      if (body.quantity > left) throw new BadRequestException(left > 0 ? `Only ${left} can be replaced` : "That line is already fully returned");
+      const medicine = await tx.medicine.findFirst({ where: { id: body.medicineId, tenantId: user.tenantId } });
+      if (!medicine) throw new NotFoundException("Medicine not found");
+      await returnStock(tx, user.tenantId, item.medicineId, body.quantity, item.batches, sale.receiptNo);
+      const takes = await consumeStock(tx, user.tenantId, medicine.id, body.replacementQuantity, "replace", sale.receiptNo);
+      const returnedCents = item.unitPriceCents * body.quantity;
+      const givenCents = medicine.unitPriceCents * body.replacementQuantity;
+      await tx.saleItem.create({
+        data: {
+          saleId: sale.id,
+          medicineId: medicine.id,
+          quantity: body.replacementQuantity,
+          unitPriceCents: medicine.unitPriceCents,
+          lineCents: givenCents,
+          origin: "replace",
+          batches: { create: takes },
+        },
+      });
+      await tx.saleEvent.create({
+        data: {
+          tenantId: user.tenantId,
+          saleId: sale.id,
+          kind: "replace",
+          note: blank(body.note),
+          amountCents: givenCents - returnedCents,
+          lines: {
+            create: [
+              {
+                saleItemId: item.id,
+                medicineId: item.medicineId,
+                direction: "return",
+                quantity: body.quantity,
+                unitPriceCents: item.unitPriceCents,
+                lineCents: -returnedCents,
+              },
+              {
+                medicineId: medicine.id,
+                direction: "give",
+                quantity: body.replacementQuantity,
+                unitPriceCents: medicine.unitPriceCents,
+                lineCents: givenCents,
+              },
+            ],
+          },
+        },
+      });
+      return this.ownedSale(user.tenantId, id, tx);
+    });
+  }
+
+  private async ownedSale(tenantId: string, id: string, tx: Prisma.TransactionClient | PrismaService = this.prisma) {
+    const sale = await tx.sale.findFirst({ where: { id, tenantId }, include: saleDetail });
+    if (!sale) throw new NotFoundException("Receipt not found");
+    return sale;
   }
 
   async suppliers(user: StaffPrincipal) {
@@ -653,11 +857,52 @@ function cleanCode(value?: string | null) {
   return trimmed ? trimmed : null;
 }
 
+const saleDetail = {
+  patient: true,
+  items: { include: { medicine: true, batches: true } },
+  events: {
+    include: { lines: { include: { medicine: true } } },
+    orderBy: { createdAt: "asc" as const },
+  },
+} satisfies Prisma.SaleInclude;
+
+function netOf(sale: { totalCents: number; events: { amountCents: number }[] }) {
+  return sale.totalCents + sale.events.reduce((sum, event) => sum + event.amountCents, 0);
+}
+
+function liraOf(cents: number, rate: number) {
+  return Math.round((cents / 100) * rate);
+}
+
+async function paymentFields(
+  tx: Prisma.TransactionClient | PrismaService,
+  tenantId: string,
+  method: string,
+  totalCents: number,
+  patientId?: string | null,
+) {
+  if (method === "credit" && !patientId) throw new BadRequestException("Choose a client to put this on account.");
+  if (method !== "cash_ll") return { paymentMethod: method, llPerUsd: null as number | null, llAmount: null as number | null };
+  const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { llPerUsd: true } });
+  if (!tenant?.llPerUsd) throw new BadRequestException("Set how many lira equal one dollar before taking lira.");
+  return { paymentMethod: method, llPerUsd: tenant.llPerUsd, llAmount: liraOf(totalCents, tenant.llPerUsd) };
+}
+
+function returnedQty(sale: { events: { lines: { saleItemId: string | null; direction: string; quantity: number }[] }[] }, saleItemId: string) {
+  return sale.events.reduce(
+    (sum, event) =>
+      sum + event.lines.filter((line) => line.saleItemId === saleItemId && line.direction === "return").reduce((lineSum, line) => lineSum + line.quantity, 0),
+    0,
+  );
+}
+
 async function consumeStock(
   tx: Prisma.TransactionClient,
   tenantId: string,
   medicineId: string,
   quantity: number,
+  reason = "sale",
+  note?: string,
 ) {
   const batches = await tx.stockBatch.findMany({
     where: { tenantId, medicineId, quantity: { gt: 0 } },
@@ -666,6 +911,7 @@ async function consumeStock(
   const now = new Date();
   const usable = batches.filter((batch) => batch.expiryDate.getTime() > now.getTime());
   let remaining = quantity;
+  const takes: { batchId: string; quantity: number }[] = [];
   for (const batch of usable) {
     if (remaining <= 0) break;
     const take = Math.min(batch.quantity, remaining);
@@ -677,9 +923,11 @@ async function consumeStock(
         batchId: batch.id,
         kind: "sale",
         quantity: -take,
-        reason: "sale",
+        reason,
+        note,
       },
     });
+    takes.push({ batchId: batch.id, quantity: take });
     remaining -= take;
   }
   if (remaining > 0) {
@@ -689,6 +937,54 @@ async function consumeStock(
     }
     throw new BadRequestException("Not enough stock to complete that");
   }
+  return takes;
+}
+
+async function returnStock(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  medicineId: string,
+  quantity: number,
+  allocations: { id: string; batchId: string; quantity: number; returned: number }[],
+  receiptNo: string,
+) {
+  let remaining = quantity;
+  for (const allocation of allocations) {
+    const room = allocation.quantity - allocation.returned;
+    if (room <= 0 || remaining <= 0) continue;
+    const put = Math.min(room, remaining);
+    await tx.stockBatch.update({ where: { id: allocation.batchId }, data: { quantity: { increment: put } } });
+    await tx.saleLineBatch.update({ where: { id: allocation.id }, data: { returned: { increment: put } } });
+    await tx.stockMovement.create({
+      data: {
+        tenantId,
+        medicineId,
+        batchId: allocation.batchId,
+        kind: "refund",
+        quantity: put,
+        reason: "refund",
+        note: receiptNo,
+      },
+    });
+    remaining -= put;
+  }
+  if (remaining <= 0) return;
+  const batches = await tx.stockBatch.findMany({ where: { tenantId, medicineId }, orderBy: { expiryDate: "asc" } });
+  const now = Date.now();
+  const target = batches.find((batch) => batch.expiryDate.getTime() > now) || batches[0];
+  if (!target) throw new BadRequestException("There is no batch left to return this medicine to.");
+  await tx.stockBatch.update({ where: { id: target.id }, data: { quantity: { increment: remaining } } });
+  await tx.stockMovement.create({
+    data: {
+      tenantId,
+      medicineId,
+      batchId: target.id,
+      kind: "refund",
+      quantity: remaining,
+      reason: "refund",
+      note: receiptNo,
+    },
+  });
 }
 
 async function nextReceipt(tx: Prisma.TransactionClient, tenantId: string) {

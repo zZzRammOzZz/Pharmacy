@@ -42,10 +42,21 @@ export type Patient = {
   createdAt: string;
 };
 
+export type AccountPayment = {
+  id: string;
+  method: string;
+  amountCents: number;
+  llAmount: number | null;
+  note: string | null;
+  createdAt: string;
+};
+
 export type ClientProfile = Patient & {
   saleCount: number;
   spentCents: number;
-  sales: { id: string; receiptNo: string; totalCents: number; createdAt: string; items: { quantity: number; medicine: { name: string } }[] }[];
+  owedCents: number;
+  sales: Sale[];
+  payments: AccountPayment[];
   prescriptions: { id: string; status: string; doctorName: string | null; createdAt: string; items: { quantity: number; medicine: { name: string } }[] }[];
 };
 
@@ -55,17 +66,33 @@ export type Prescription = {
   doctorName: string | null;
   notes: string | null;
   createdAt: string;
-  patient: { id: string; name: string };
-  items: { quantity: number; dosage: string | null; medicine: { name: string; strength: string | null } }[];
+  patient: { id: string; name: string; allergies: string | null };
+  items: { quantity: number; dosage: string | null; medicine: { id: string; name: string; strength: string | null } }[];
 };
 
 export type Sale = {
   id: string;
   receiptNo: string;
   totalCents: number;
+  paymentMethod?: string;
+  llPerUsd?: number | null;
+  llAmount?: number | null;
   createdAt: string;
   patient: { name: string } | null;
-  items: { quantity: number; lineCents: number; unitPriceCents: number; medicine: { name: string; strength: string | null } }[];
+  items: { id: string; quantity: number; lineCents: number; unitPriceCents: number; origin?: string; medicine: { id: string; name: string; strength: string | null } }[];
+  events: {
+    id: string;
+    kind: string;
+    note: string | null;
+    amountCents: number;
+    createdAt: string;
+    lines: {
+      saleItemId: string | null;
+      direction: string;
+      quantity: number;
+      medicine: { name: string; strength: string | null };
+    }[];
+  }[];
 };
 
 export type Supplier = {
@@ -99,6 +126,7 @@ export type Bootstrap = {
   expiring: (Batch & { medicine: string })[];
   patientCount: number;
   pendingPrescriptions: number;
+  llPerUsd: number;
   salesToday: { count: number; totalCents: number };
 };
 

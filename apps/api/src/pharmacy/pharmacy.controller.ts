@@ -5,7 +5,12 @@ import {
   CreatePrescriptionDto,
   AdjustmentDto,
   CreatePurchaseDto,
+  AccountPaymentDto,
   CreateSaleDto,
+  RefundSaleDto,
+  ReplaceSaleDto,
+  SetRateDto,
+  TakePaymentDto,
   CreateStaffDto,
   CreateSupplierDto,
   UpdatePatientDto,
@@ -104,6 +109,12 @@ export class PharmacyController {
     return this.pharmacy.updatePatient(request.user, id, body);
   }
 
+  @Post("patients/:id/payments")
+  @UseGuards(PharmacyGuard)
+  receivePayment(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: AccountPaymentDto) {
+    return this.pharmacy.receivePayment(request.user, id, body);
+  }
+
   @Get("prescriptions")
   @UseGuards(PharmacyGuard)
   prescriptions(@Req() request: { user: StaffPrincipal }) {
@@ -116,10 +127,32 @@ export class PharmacyController {
     return this.pharmacy.createPrescription(request.user, body);
   }
 
+  @Patch("prescriptions/:id")
+  @UseGuards(PharmacyGuard)
+  updatePrescription(
+    @Req() request: { user: StaffPrincipal },
+    @Param("id") id: string,
+    @Body() body: CreatePrescriptionDto,
+  ) {
+    return this.pharmacy.updatePrescription(request.user, id, body);
+  }
+
   @Post("prescriptions/:id/dispense")
   @UseGuards(PharmacyGuard)
-  dispense(@Req() request: { user: StaffPrincipal }, @Param("id") id: string) {
-    return this.pharmacy.dispense(request.user, id);
+  dispense(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: TakePaymentDto) {
+    return this.pharmacy.dispense(request.user, id, body);
+  }
+
+  @Get("till")
+  @UseGuards(PharmacyGuard)
+  till(@Req() request: { user: StaffPrincipal }) {
+    return this.pharmacy.till(request.user);
+  }
+
+  @Patch("till")
+  @UseGuards(PharmacyGuard)
+  setTill(@Req() request: { user: StaffPrincipal }, @Body() body: SetRateDto) {
+    return this.pharmacy.setTill(request.user, body);
   }
 
   @Get("sales")
@@ -132,6 +165,24 @@ export class PharmacyController {
   @UseGuards(PharmacyGuard)
   createSale(@Req() request: { user: StaffPrincipal }, @Body() body: CreateSaleDto) {
     return this.pharmacy.createSale(request.user, body);
+  }
+
+  @Get("sales/:id")
+  @UseGuards(PharmacyGuard)
+  sale(@Req() request: { user: StaffPrincipal }, @Param("id") id: string) {
+    return this.pharmacy.sale(request.user, id);
+  }
+
+  @Post("sales/:id/refund")
+  @UseGuards(PharmacyGuard)
+  refundSale(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: RefundSaleDto) {
+    return this.pharmacy.refundSale(request.user, id, body);
+  }
+
+  @Post("sales/:id/replace")
+  @UseGuards(PharmacyGuard)
+  replaceSale(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: ReplaceSaleDto) {
+    return this.pharmacy.replaceSale(request.user, id, body);
   }
 
   @Get("suppliers")
