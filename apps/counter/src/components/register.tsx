@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, clock, money, paymentLabel, Session } from "@/lib/api";
+import { allowed, api, clock, money, paymentLabel, Session } from "@/lib/api";
 import { Medicine, Patient, Sale } from "@/lib/types";
 import { PaymentChoice } from "./payment";
 import { ReceiptSheet, saleBalance, saleMarks } from "./receipt";
@@ -130,9 +130,9 @@ export function Register({ session }: { session: Session }) {
   }
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <section className="overflow-hidden rounded-sm border border-line bg-white">
-        <div className="border-b border-line p-3">
+    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <section className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+        <div className="border-b border-line p-4">
           <input
             ref={searchRef}
             value={query}
@@ -152,7 +152,7 @@ export function Register({ session }: { session: Session }) {
         </div>
         <div className="max-h-[560px] overflow-auto">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 bg-[#f6f8f7] text-xs text-muted">
+            <thead className="sticky top-0 bg-[#121a17] text-xs text-muted">
               <tr>
                 <th className="px-4 py-2 font-medium">Medicine</th>
                 <th className="px-4 py-2 font-medium">In date</th>
@@ -165,16 +165,16 @@ export function Register({ session }: { session: Session }) {
                   <td className="px-4 py-3">
                     <button className="text-left" onClick={() => add(medicine)}>
                       <span className="font-medium">{medicine.name}</span>
-                      {medicine.strength ? <span className="text-stone-500"> {medicine.strength}</span> : null}
-                      <span className="mt-0.5 block text-xs text-stone-500">{medicine.sku}{medicine.barcode ? ` · ${medicine.barcode}` : ""}</span>
+                      {medicine.strength ? <span className="text-muted"> {medicine.strength}</span> : null}
+                      <span className="mt-0.5 block text-xs text-muted">{medicine.sku}{medicine.barcode ? ` · ${medicine.barcode}` : ""}</span>
                     </button>
                   </td>
-                  <td className={`px-4 py-3 tabular-nums ${(medicine.inDate ?? medicine.onHand) <= medicine.reorderLevel ? "text-[#8a3b32]" : ""}`}>{medicine.inDate ?? medicine.onHand}</td>
+                  <td className={`px-4 py-3 tabular-nums ${(medicine.inDate ?? medicine.onHand) <= medicine.reorderLevel ? "text-[#ffb4ab]" : ""}`}>{medicine.inDate ?? medicine.onHand}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{money(medicine.unitPriceCents)}</td>
                 </tr>
               ))}
               {filtered.length === 0 ? (
-                <tr><td className="px-4 py-8 text-stone-500" colSpan={3}>Nothing matches that search.</td></tr>
+                <tr><td className="px-4 py-8 text-muted" colSpan={3}>Nothing matches that search.</td></tr>
               ) : null}
             </tbody>
           </table>
@@ -182,12 +182,12 @@ export function Register({ session }: { session: Session }) {
       </section>
 
       <div className="grid gap-4">
-        <aside className="rounded-sm border border-line bg-white">
-          <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
+        <aside className="rounded-xl border border-line bg-surface shadow-card">
+          <header className="flex items-center justify-between border-b border-line px-5 py-3.5">
             <h2 className="text-sm font-semibold">Current sale</h2>
             <span className="text-xs text-muted">{lines.length} {lines.length === 1 ? "line" : "lines"}</span>
           </header>
-          <div className="px-4 py-3">
+          <div className="px-5 py-4">
             <label className="block text-xs font-medium text-muted">
               Client
               <select value={patientId} onChange={(event) => setPatientId(event.target.value)} className={`${control} mt-1`}>
@@ -207,10 +207,10 @@ export function Register({ session }: { session: Session }) {
                       <p className="text-xs text-muted">{money(line.medicine.unitPriceCents)}</p>
                     </td>
                     <td className="py-2">
-                      <div className="inline-flex rounded-sm border border-line">
-                        <button className="h-7 w-7" onClick={() => setQuantity(line.medicine.id, line.quantity - 1)}>-</button>
-                        <span className="grid w-7 place-items-center text-xs tabular-nums">{line.quantity}</span>
-                        <button className="h-7 w-7" onClick={() => setQuantity(line.medicine.id, line.quantity + 1)}>+</button>
+                      <div className="inline-flex overflow-hidden rounded-lg border border-line">
+                        <button className="h-8 w-8 hover:bg-white/5" onClick={() => setQuantity(line.medicine.id, line.quantity - 1)}>-</button>
+                        <span className="grid w-8 place-items-center text-sm tabular-nums">{line.quantity}</span>
+                        <button className="h-8 w-8 hover:bg-white/5" onClick={() => setQuantity(line.medicine.id, line.quantity + 1)}>+</button>
                       </div>
                     </td>
                     <td className="py-2 text-right tabular-nums">{money(line.quantity * line.medicine.unitPriceCents)}</td>
@@ -220,7 +220,7 @@ export function Register({ session }: { session: Session }) {
             </table>
             <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
               <span className="text-sm text-muted">Total</span>
-              <span className="text-xl font-semibold tabular-nums">{money(total)}</span>
+              <span className="text-2xl font-semibold tabular-nums tracking-tight">{money(total)}</span>
             </div>
             <PaymentChoice
               method={method}
@@ -233,7 +233,7 @@ export function Register({ session }: { session: Session }) {
             />
             <div className="mt-3"><Notice message={error} /></div>
             <button
-              className="mt-3 h-10 w-full rounded-sm bg-moss text-sm font-medium text-white disabled:bg-stone-300"
+              className="mt-4 h-12 w-full rounded-lg bg-moss text-sm font-semibold text-[#04281c] shadow-sm hover:bg-[#62d4a4] disabled:bg-[#2c3833] disabled:text-muted"
               disabled={pending || lines.length === 0 || (method === "credit" && !patientId)}
               onClick={charge}
             >
@@ -248,6 +248,7 @@ export function Register({ session }: { session: Session }) {
             pharmacy={session.user.tenant.name}
             medicines={medicines}
             autoPrint={autoPrint}
+            canRefund={allowed(session, "refund")}
             onPrinted={() => setAutoPrint(false)}
             onClose={() => setOpenSale(null)}
             onChange={(sale) => {
@@ -257,22 +258,22 @@ export function Register({ session }: { session: Session }) {
             }}
           />
         ) : null}
-        <section className="rounded-sm border border-line bg-white">
-          <h2 className="border-b border-line px-4 py-2.5 text-sm font-semibold">Recent receipts</h2>
+        <section className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+          <h2 className="border-b border-line px-5 py-3.5 text-sm font-semibold">Recent receipts</h2>
           <ul>
             {sales.slice(0, 8).map((sale) => (
               <li key={sale.id} className="border-b border-line last:border-b-0">
-                <button className="flex w-full items-baseline justify-between gap-3 px-4 py-2 text-left text-sm hover:bg-[#f6f8f7]" onClick={() => { setOpenSale(sale); setAutoPrint(false); }}>
+                <button className="flex w-full items-baseline justify-between gap-3 px-4 py-2 text-left text-sm hover:bg-white/5" onClick={() => { setOpenSale(sale); setAutoPrint(false); }}>
                   <span className="min-w-0">
                     <span className="font-medium">{sale.receiptNo}</span>
                     <span className="ml-2 text-xs text-muted">{sale.patient?.name || "Walk-in"} · {paymentLabel(sale.paymentMethod)} · {clock(sale.createdAt)}</span>
-                    {saleMarks(sale).map((mark) => <span key={mark} className="ml-2 text-[11px] font-medium text-[#8a3b32]">{mark}</span>)}
+                    {saleMarks(sale).map((mark) => <span key={mark} className="ml-2 text-[11px] font-medium text-[#ffb4ab]">{mark}</span>)}
                   </span>
                   <span className="tabular-nums">{money(saleBalance(sale))}</span>
                 </button>
               </li>
             ))}
-            {sales.length === 0 ? <li className="px-4 py-6 text-sm text-stone-500">No receipts yet.</li> : null}
+            {sales.length === 0 ? <li className="px-4 py-6 text-sm text-muted">No receipts yet.</li> : null}
           </ul>
         </section>
       </div>

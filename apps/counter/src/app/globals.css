@@ -3,21 +3,32 @@
 @tailwind utilities;
 
 body {
-  background: #f3f5f4;
-  color: #17211c;
+  background: #0c1210;
+  color: #e7f2ec;
 }
 
 input,
 select,
 textarea {
-  background: #fff;
+  background: #171f1c;
+  color: #e7f2ec;
+}
+
+select option {
+  background: #171f1c;
+  color: #e7f2ec;
+}
+
+::placeholder {
+  color: #93a69d;
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid #0f6b4c;
-  outline-offset: 0;
+  outline: none;
+  border-color: #3dbe8a;
+  box-shadow: 0 0 0 3px rgba(61, 190, 138, 0.22);
 }
 
 @media print {
@@ -27,23 +38,36 @@ textarea:focus {
 
   .client-copy,
   .print-sheet,
+  .order-sheet,
   .client-copy *,
-  .print-sheet * {
+  .print-sheet *,
+  .order-sheet * {
     visibility: visible;
   }
 
   .client-copy,
-  .print-sheet {
+  .print-sheet,
+  .order-sheet {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
     border: 0;
     background: #fff;
+    color: #17211c;
   }
 
   .client-copy .no-print,
-  .print-sheet .no-print {
+  .print-sheet .no-print,
+  .order-sheet .no-print {
     display: none !important;
   }
+
+  .only-print {
+    display: block !important;
+  }
+}
+
+.only-print {
+  display: none;
 }

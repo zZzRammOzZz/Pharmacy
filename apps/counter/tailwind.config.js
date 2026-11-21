@@ -4,15 +4,26 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["IBM Plex Sans", "Segoe UI", "sans-serif"],
+        sans: ["Plus Jakarta Sans", "Segoe UI", "sans-serif"],
+      },
+      borderRadius: {
+        sm: "10px",
+        DEFAULT: "12px",
+        md: "14px",
+        lg: "16px",
+        xl: "20px",
+      },
+      boxShadow: {
+        card: "0 0 0 1px rgba(255,255,255,0.03), 0 16px 40px rgba(0,0,0,0.28)",
       },
       colors: {
-        ink: "#17211c",
-        muted: "#5c6b63",
-        moss: "#0f6b4c",
-        mossdeep: "#0c3d2e",
-        canvas: "#f3f5f4",
-        line: "#dfe3e1",
+        ink: "#e7f2ec",
+        muted: "#93a69d",
+        moss: "#3dbe8a",
+        mossdeep: "#d7ffe8",
+        canvas: "#0c1210",
+        surface: "#171f1c",
+        line: "#2a3832",
       },
     },
   },

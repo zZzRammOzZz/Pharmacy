@@ -44,11 +44,37 @@ export type Patient = {
 
 export type AccountPayment = {
   id: string;
+  receiptNo: string | null;
   method: string;
   amountCents: number;
   llAmount: number | null;
   note: string | null;
   createdAt: string;
+};
+
+export type ClosingReceipt = {
+  receiptNo: string | null;
+  method: string;
+  amountCents: number;
+  llPerUsd: number | null;
+  llAmount: number | null;
+  note: string | null;
+  createdAt: string;
+  patient: { name: string };
+  lines: { receiptNo: string; createdAt: string; amountCents: number }[];
+  balanceCents: number;
+};
+
+export type AgedClient = {
+  id: string;
+  name: string;
+  phone: string | null;
+  currentCents: number;
+  days31Cents: number;
+  days61Cents: number;
+  days91Cents: number;
+  totalCents: number;
+  open: { saleId: string; receiptNo: string; createdAt: string; openCents: number; ageDays: number }[];
 };
 
 export type ClientProfile = Patient & {
@@ -110,13 +136,39 @@ export type Supplier = {
 
 export type SupplierProfile = Supplier & {
   purchaseCount: number;
+  owedCents: number;
   purchases: {
     id: string;
     reference: string;
     createdAt: string;
     notes: string | null;
-    lines: { id: string; quantity: number; batchNumber: string; expiryDate: string; medicine: { name: string } }[];
+    lines: { id: string; quantity: number; costCents: number; batchNumber: string; expiryDate: string; medicine: { name: string } }[];
   }[];
+};
+
+export type AgedSupplier = {
+  id: string;
+  name: string;
+  phone: string | null;
+  currentCents: number;
+  days31Cents: number;
+  days61Cents: number;
+  days91Cents: number;
+  totalCents: number;
+  open: { purchaseId: string; reference: string; createdAt: string; openCents: number; ageDays: number }[];
+};
+
+export type WholesalerClosing = {
+  receiptNo: string | null;
+  method: string;
+  amountCents: number;
+  llPerUsd: number | null;
+  llAmount: number | null;
+  note: string | null;
+  createdAt: string;
+  supplier: { name: string };
+  lines: { reference: string; createdAt: string; amountCents: number }[];
+  balanceCents: number;
 };
 
 export type Bootstrap = {
@@ -127,7 +179,81 @@ export type Bootstrap = {
   patientCount: number;
   pendingPrescriptions: number;
   llPerUsd: number;
+  agedCount: number;
+  supplierAgedCount: number;
+  orderCount: number;
+  branches: { id: string; name: string }[];
+  me: { role: string; permissions: string[]; features?: string[]; plan?: string; seats?: number };
   salesToday: { count: number; totalCents: number };
 };
 
-export type Section = "today" | "register" | "stock" | "patients" | "prescriptions" | "suppliers";
+export type StaffList = {
+  seats: number;
+  used: number;
+  staff: { id: string; name: string; email: string; role: string; permissions: string[]; branch?: { id: string; name: string } | null; createdAt: string }[];
+};
+
+export type ReadingRow = {
+  id: string;
+  name: string;
+  role: string;
+  branch?: string | null;
+  receipts: number;
+  takingsCents: number;
+};
+
+export type Reading = {
+  scope?: "all" | "branch";
+  mine: ReadingRow;
+  main: {
+    receipts: number;
+    takingsCents: number;
+    staff: ReadingRow[];
+    lines: { at: string; kind: string; who: string; label: string; amountCents: number; method: string | null }[];
+  } | null;
+};
+
+export type ReportRange = "today" | "month";
+
+export type Report = {
+  range: ReportRange;
+  from: string;
+  to: string;
+  soldCents: number;
+  collectedCents: number;
+  costCents: number;
+  profitCents: number;
+  margin: number;
+  receipts: number;
+  refundCents: number;
+  expiredWasteCents: number;
+  otherWasteCents: number;
+  expiredOnShelfCents: number;
+  openCreditCents: number;
+  byDay: { date: string; soldCents: number; collectedCents: number; costCents: number; profitCents: number; receipts: number }[];
+  byProduct: { id: string; name: string; quantity: number; soldCents: number; costCents: number; profitCents: number }[];
+  byStaff: { id: string; name: string; role: string; receipts: number; soldCents: number; collectedCents: number }[];
+};
+
+export type OrderLine = {
+  medicineId: string;
+  name: string;
+  strength: string | null;
+  inDate: number;
+  reorderLevel: number;
+  sold: number;
+  daysCover: number | null;
+  orderQty: number;
+  costCents: number;
+  lineCents: number;
+  reason: "reorder" | "fast" | "both";
+};
+
+export type OrderList = {
+  windowDays: number;
+  count: number;
+  totalCents: number;
+  groups: { supplierId: string | null; supplierName: string; totalCents: number; lines: OrderLine[] }[];
+};
+
+export type Section = "today" | "register" | "stock" | "patients" | "aged" | "prescriptions" | "suppliers" | "wholesalers" | "orders" | "reports" | "staff";

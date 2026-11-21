@@ -10,6 +10,11 @@ import { Register } from "@/components/register";
 import { Shell } from "@/components/shell";
 import { Stock } from "@/components/stock";
 import { Suppliers } from "@/components/suppliers";
+import { Orders } from "@/components/orders";
+import { Wholesalers } from "@/components/wholesalers";
+import { Aged } from "@/components/aged";
+import { Reports } from "@/components/reports";
+import { Staff } from "@/components/staff";
 import { Today } from "@/components/today";
 
 export default function CounterPage() {
@@ -34,13 +39,22 @@ export default function CounterPage() {
         localStorage.removeItem("pharmacyos_counter");
         setSession(null);
       }}
+      onSession={(next) => {
+        localStorage.setItem("pharmacyos_counter", JSON.stringify(next));
+        setSession(next);
+      }}
     >
       {section === "today" ? <Today session={session} onSection={setSection} /> : null}
       {section === "register" ? <Register session={session} /> : null}
       {section === "stock" ? <Stock session={session} /> : null}
       {section === "patients" ? <Patients session={session} /> : null}
+      {section === "aged" ? <Aged session={session} /> : null}
       {section === "prescriptions" ? <Prescriptions session={session} /> : null}
       {section === "suppliers" ? <Suppliers session={session} /> : null}
+      {section === "wholesalers" ? <Wholesalers session={session} /> : null}
+      {section === "orders" ? <Orders session={session} /> : null}
+      {section === "reports" ? <Reports session={session} /> : null}
+      {section === "staff" ? <Staff session={session} /> : null}
     </Shell>
   );
 }

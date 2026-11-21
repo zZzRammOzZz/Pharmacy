@@ -7,11 +7,14 @@ import {
   CreatePurchaseDto,
   AccountPaymentDto,
   CreateSaleDto,
+  RefundAllDto,
   RefundSaleDto,
   ReplaceSaleDto,
   SetRateDto,
   TakePaymentDto,
+  CreateBranchDto,
   CreateStaffDto,
+  UpdateStaffDto,
   CreateSupplierDto,
   UpdatePatientDto,
   UpdateSupplierDto,
@@ -53,6 +56,12 @@ export class PharmacyController {
   @UseGuards(PharmacyGuard)
   receiveStock(@Req() request: { user: StaffPrincipal }, @Body() body: ReceiveStockDto) {
     return this.pharmacy.receiveStock(request.user, body);
+  }
+
+  @Get("orders")
+  @UseGuards(PharmacyGuard)
+  orderList(@Req() request: { user: StaffPrincipal }) {
+    return this.pharmacy.orderList(request.user);
   }
 
   @Get("purchases")
@@ -107,6 +116,12 @@ export class PharmacyController {
   @UseGuards(PharmacyGuard)
   updatePatient(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: UpdatePatientDto) {
     return this.pharmacy.updatePatient(request.user, id, body);
+  }
+
+  @Get("aged")
+  @UseGuards(PharmacyGuard)
+  aged(@Req() request: { user: StaffPrincipal }) {
+    return this.pharmacy.aged(request.user);
   }
 
   @Post("patients/:id/payments")
@@ -179,6 +194,12 @@ export class PharmacyController {
     return this.pharmacy.refundSale(request.user, id, body);
   }
 
+  @Post("sales/:id/refund-all")
+  @UseGuards(PharmacyGuard)
+  refundAll(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: RefundAllDto) {
+    return this.pharmacy.refundAll(request.user, id, body);
+  }
+
   @Post("sales/:id/replace")
   @UseGuards(PharmacyGuard)
   replaceSale(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: ReplaceSaleDto) {
@@ -197,6 +218,18 @@ export class PharmacyController {
     return this.pharmacy.createSupplier(request.user, body);
   }
 
+  @Get("suppliers/aged")
+  @UseGuards(PharmacyGuard)
+  supplierAged(@Req() request: { user: StaffPrincipal }) {
+    return this.pharmacy.supplierAged(request.user);
+  }
+
+  @Post("suppliers/:id/payments")
+  @UseGuards(PharmacyGuard)
+  paySupplier(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: AccountPaymentDto) {
+    return this.pharmacy.paySupplier(request.user, id, body);
+  }
+
   @Get("suppliers/:id")
   @UseGuards(PharmacyGuard)
   supplierProfile(@Req() request: { user: StaffPrincipal }, @Param("id") id: string) {
@@ -209,9 +242,45 @@ export class PharmacyController {
     return this.pharmacy.updateSupplier(request.user, id, body);
   }
 
+  @Get("staff")
+  @UseGuards(PharmacyGuard)
+  staff(@Req() request: { user: StaffPrincipal }) {
+    return this.pharmacy.staff(request.user);
+  }
+
   @Post("staff")
   @UseGuards(PharmacyGuard)
   createStaff(@Req() request: { user: StaffPrincipal }, @Body() body: CreateStaffDto) {
     return this.pharmacy.createStaff(request.user, body);
+  }
+
+  @Patch("staff/:id")
+  @UseGuards(PharmacyGuard)
+  updateStaff(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: UpdateStaffDto) {
+    return this.pharmacy.updateStaff(request.user, id, body);
+  }
+
+  @Get("reading")
+  @UseGuards(PharmacyGuard)
+  reading(@Req() request: { user: StaffPrincipal }, @Query("scope") scope?: string) {
+    return this.pharmacy.reading(request.user, scope === "all");
+  }
+
+  @Get("branches")
+  @UseGuards(PharmacyGuard)
+  branches(@Req() request: { user: StaffPrincipal }) {
+    return this.pharmacy.branches(request.user);
+  }
+
+  @Post("branches")
+  @UseGuards(PharmacyGuard)
+  createBranch(@Req() request: { user: StaffPrincipal }, @Body() body: CreateBranchDto) {
+    return this.pharmacy.createBranch(request.user, body.name);
+  }
+
+  @Get("reports")
+  @UseGuards(PharmacyGuard)
+  reports(@Req() request: { user: StaffPrincipal }, @Query("range") range?: string) {
+    return this.pharmacy.reports(request.user, range === "month" ? "month" : "today");
   }
 }

@@ -237,6 +237,12 @@ export class AccountPaymentDto {
   note?: string;
 }
 
+export class RefundAllDto {
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
 export class RefundSaleDto {
   @IsString()
   saleItemId!: string;
@@ -420,6 +426,14 @@ export class WasteDto {
   note?: string;
 }
 
+export class CreateBranchDto {
+  @IsString()
+  @MinLength(2)
+  name!: string;
+}
+
+export const STAFF_PERMISSIONS = ["refund", "mainReading", "reports"] as const;
+
 export class CreateStaffDto {
   @IsString()
   @MinLength(2)
@@ -432,6 +446,24 @@ export class CreateStaffDto {
   @MinLength(8)
   password!: string;
 
-  @IsIn(["pharmacist", "cashier", "owner"])
-  role!: "pharmacist" | "cashier" | "owner";
+  @IsIn(["pharmacist", "cashier", "manager"])
+  role!: "pharmacist" | "cashier" | "manager";
+
+  @IsArray()
+  @IsIn(STAFF_PERMISSIONS, { each: true })
+  permissions!: string[];
+}
+
+export class UpdateStaffDto {
+  @IsIn(["pharmacist", "cashier", "manager"])
+  role!: "pharmacist" | "cashier" | "manager";
+
+  @IsArray()
+  @IsIn(STAFF_PERMISSIONS, { each: true })
+  permissions!: string[];
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
 }

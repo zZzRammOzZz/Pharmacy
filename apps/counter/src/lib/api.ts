@@ -8,8 +8,10 @@ export const API_URL = apiRoot();
 export type Session = {
   accessToken: string;
   licenseToken: string;
-  user: { name: string; email: string; role: string; tenant: { name: string; code: string } };
+  user: { name: string; email: string; role: string; permissions?: string[]; tenant: { name: string; code: string } };
   license: { plan: string; seats: number; features: string[]; expiresAt: string };
+  branchId?: string;
+  branches?: { id: string; name: string }[];
 };
 
 export function loadSession(): Session | null {
@@ -29,6 +31,7 @@ export async function api<T>(path: string, session: Session, init: RequestInit =
   if (init.body) headers.set("Content-Type", "application/json");
   headers.set("Authorization", `Bearer ${session.accessToken}`);
   headers.set("x-license-token", session.licenseToken);
+  if (session.branchId) headers.set("x-branch-id", session.branchId);
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -48,6 +51,11 @@ export function lira(amount: number) {
 
 export function liraOf(cents: number, rate: number) {
   return Math.round((cents / 100) * rate);
+}
+
+export function allowed(session: Session, permission: string) {
+  if (session.user.role === "owner") return true;
+  return (session.user.permissions || []).includes(permission);
 }
 
 export function paymentLabel(method?: string | null) {

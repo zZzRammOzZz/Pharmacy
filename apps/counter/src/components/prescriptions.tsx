@@ -130,24 +130,24 @@ export function Prescriptions({ session }: { session: Session }) {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <Notice message={error} />
           <div className="flex gap-2">
-            <button className="h-9 border border-line bg-white px-3 text-sm" onClick={() => setPendingOnly((value) => !value)}>
+            <button className="h-9 border border-line bg-surface px-3 text-sm" onClick={() => setPendingOnly((value) => !value)}>
               {pendingOnly ? "Show dispensed" : "Waiting only"}
             </button>
             {canWrite ? (
-              <button className="h-9 border border-line bg-white px-3 text-sm" onClick={startCreate}>New prescription</button>
+              <button className="h-9 border border-line bg-surface px-3 text-sm" onClick={startCreate}>New prescription</button>
             ) : null}
           </div>
         </div>
-        <div className="rounded-sm border border-line bg-white">
-          {visible.length === 0 ? <p className="px-4 py-8 text-sm text-stone-500">The queue is clear.</p> : null}
+        <div className="rounded-sm border border-line bg-surface">
+          {visible.length === 0 ? <p className="px-4 py-8 text-sm text-muted">The queue is clear.</p> : null}
           {visible.map((prescription) => (
             <button
               key={prescription.id}
               onClick={() => openPreview(prescription)}
-              className={`block w-full border-b border-line px-4 py-4 text-left last:border-b-0 ${selectedId === prescription.id ? "bg-[#e7f3ee]" : "hover:bg-[#f6f8f7]"}`}
+              className={`block w-full border-b border-line px-4 py-4 text-left last:border-b-0 ${selectedId === prescription.id ? "bg-[#1a3329]" : "hover:bg-white/5"}`}
             >
               <p className="font-medium">{prescription.patient.name}</p>
-              <p className="mt-1 text-sm text-stone-600">
+              <p className="mt-1 text-sm text-muted">
                 {prescription.doctorName || "Doctor not named"} · {when(prescription.createdAt)} · <span className="capitalize">{prescription.status}</span>
               </p>
               <ul className="mt-2 text-sm">
@@ -165,7 +165,7 @@ export function Prescriptions({ session }: { session: Session }) {
           <div className="no-print mt-4 flex flex-wrap gap-2">
             <button className="h-9 rounded-sm bg-moss px-3 text-sm font-medium text-white" onClick={() => window.print()}>Print for client</button>
             {selected.status === "pending" && canWrite ? (
-              <button className="h-9 rounded-sm border border-line bg-white px-3 text-sm" onClick={() => startEdit(selected)}>Update</button>
+              <button className="h-9 rounded-sm border border-line bg-surface px-3 text-sm" onClick={() => startEdit(selected)}>Update</button>
             ) : null}
             {selected.status === "pending" && canWrite ? (
               confirmId === selected.id ? (
@@ -234,27 +234,27 @@ function ClientCopy({
   children?: ReactNode;
 }) {
   return (
-    <article className="client-copy rounded-sm border border-line bg-white px-5 py-5">
+    <article className="client-copy rounded-sm border border-line bg-surface px-5 py-5">
       <p className="text-xs font-medium text-muted">{pharmacy}</p>
       <h2 className="mt-1 text-lg font-semibold">For {prescription.patient.name}</h2>
-      <p className="mt-1 text-sm text-stone-600">
+      <p className="mt-1 text-sm text-muted">
         {when(prescription.createdAt)}
         {prescription.doctorName ? ` · ${prescription.doctorName}` : ""}
         {" · "}
         <span className="capitalize">{prescription.status}</span>
       </p>
       {prescription.patient.allergies ? (
-        <p className="mt-3 rounded-sm border border-[#efd0cc] bg-[#fdf6f5] px-3 py-2 text-sm text-[#8d332c]">Allergy: {prescription.patient.allergies}</p>
+        <p className="mt-3 rounded-sm border border-[#efd0cc] bg-[#2a1715] px-3 py-2 text-sm text-[#ffb4ab]">Allergy: {prescription.patient.allergies}</p>
       ) : null}
       <ul className="mt-4 divide-y divide-line border-y border-line">
         {prescription.items.map((item, index) => (
           <li key={`${prescription.id}-${index}`} className="py-3 text-sm">
             <p className="font-medium">{item.medicine.name}{item.medicine.strength ? ` ${item.medicine.strength}` : ""}</p>
-            <p className="mt-0.5 text-stone-600">Quantity {item.quantity}{item.dosage ? ` · ${item.dosage}` : ""}</p>
+            <p className="mt-0.5 text-muted">Quantity {item.quantity}{item.dosage ? ` · ${item.dosage}` : ""}</p>
           </li>
         ))}
       </ul>
-      {prescription.notes ? <p className="mt-3 text-sm text-stone-600">{prescription.notes}</p> : null}
+      {prescription.notes ? <p className="mt-3 text-sm text-muted">{prescription.notes}</p> : null}
       <p className="mt-4 text-xs text-muted">Keep this with the medicine.</p>
       {children}
     </article>
@@ -313,7 +313,7 @@ function ScriptForm({
             </li>
           );
         })}
-        {lines.length === 0 ? <li className="py-2 text-stone-500">No medicines on this prescription yet.</li> : null}
+        {lines.length === 0 ? <li className="py-2 text-muted">No medicines on this prescription yet.</li> : null}
       </ul>
       <form key={`${patientId || "new"}-${doctorName || ""}-${notes || ""}`} onSubmit={onSubmit} className="grid gap-3 p-4">
         <Field label="Client">

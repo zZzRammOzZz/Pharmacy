@@ -31,14 +31,14 @@ export function PaymentChoice({
   return (
     <div className="mt-3">
       <p className="text-xs font-medium text-muted">Payment</p>
-      <div className="mt-1 grid grid-cols-2 gap-1">
+      <div className="mt-2 grid grid-cols-2 gap-2">
         {paymentMethods.map(([id, label]) => (
           <button
             key={id}
             type="button"
             disabled={id === "credit" && !allowCredit}
             onClick={() => onMethod(id)}
-            className={`h-8 rounded-sm border text-xs ${method === id ? "border-moss bg-[#e7f3ee] font-medium" : "border-line bg-white"} disabled:cursor-not-allowed disabled:text-stone-300`}
+            className={`h-10 rounded-lg border text-sm ${method === id ? "border-moss bg-[#1a3329] font-semibold text-mossdeep" : "border-line bg-surface text-ink"} disabled:cursor-not-allowed disabled:text-[#66756e]`}
           >
             {label}
           </button>
@@ -56,7 +56,7 @@ export function PaymentChoice({
             className={`${control} mt-1`}
             placeholder="89500"
           />
-          {parsed > 0 && totalCents > 0 ? <span className="mt-1 block font-normal text-stone-600">Collect {lira(liraOf(totalCents, parsed))} LL</span> : <span className="mt-1 block font-normal text-stone-500">Set the rate before taking lira.</span>}
+          {parsed > 0 && totalCents > 0 ? <span className="mt-1 block font-normal text-muted">Collect {lira(liraOf(totalCents, parsed))} LL</span> : <span className="mt-1 block font-normal text-muted">Set the rate before taking lira.</span>}
         </label>
       ) : null}
       {method === "credit" && allowCredit ? <p className="mt-1 text-xs text-muted">This stays on the client’s account until they pay it.</p> : null}

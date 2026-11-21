@@ -126,7 +126,8 @@ export default function TenantDetailPage() {
             Plan
             <select name="plan" className="mt-1 w-full border border-line px-3 py-2" defaultValue="standard">
               <option value="standard">Standard — stock, sales, patients, 5 seats</option>
-              <option value="professional">Professional — adds prescriptions and suppliers, 15 seats</option>
+              <option value="professional">Professional — adds prescriptions, suppliers, and reports, 15 seats</option>
+              <option value="group">Group — several branches under one owner, 40 seats</option>
             </select>
           </label>
           <label className="mt-4 block text-sm">

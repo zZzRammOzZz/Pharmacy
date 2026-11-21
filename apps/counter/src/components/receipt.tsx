@@ -31,6 +31,7 @@ export function ReceiptSheet({
   medicines,
   clientName,
   autoPrint,
+  canRefund = true,
   onChange,
   onPrinted,
   onClose,
@@ -41,6 +42,7 @@ export function ReceiptSheet({
   medicines: Medicine[];
   clientName?: string;
   autoPrint?: boolean;
+  canRefund?: boolean;
   onChange: (sale: Sale) => void;
   onPrinted?: () => void;
   onClose?: () => void;
@@ -48,9 +50,12 @@ export function ReceiptSheet({
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [refundAllOpen, setRefundAllOpen] = useState(false);
+  const [refundNote, setRefundNote] = useState("");
   const events = sale.events || [];
   const balance = saleBalance(sale);
   const who = clientName || sale.patient?.name || "Walk-in";
+  const refundable = sale.items.some((item) => item.quantity - returnedQty(sale, item.id) > 0);
 
   useEffect(() => {
     if (!autoPrint) return;
@@ -77,6 +82,25 @@ export function ReceiptSheet({
         body: JSON.stringify({ saleItemId: draft.itemId, quantity: draft.quantity, note: draft.note || undefined }),
       });
       setDraft(null);
+      onChange(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The refund did not complete");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function refundReceipt(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    try {
+      const next = await api<Sale>(`/pharmacy/sales/${sale.id}/refund-all`, session, {
+        method: "POST",
+        body: JSON.stringify({ note: refundNote || undefined }),
+      });
+      setRefundAllOpen(false);
+      setRefundNote("");
       onChange(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The refund did not complete");
@@ -115,20 +139,35 @@ export function ReceiptSheet({
   }
 
   return (
-    <article className="print-sheet rounded-sm border border-line bg-white px-5 py-5">
+    <article className="print-sheet rounded-sm border border-line bg-surface px-5 py-5">
       <div className="no-print mb-3 flex items-center justify-between gap-3">
         <p className="text-xs font-medium text-muted">Receipt</p>
         <div className="flex gap-2">
+          {canRefund && refundable ? (
+            <button className="h-8 rounded-sm border border-line px-3 text-sm" onClick={() => { setDraft(null); setRefundAllOpen((open) => !open); }}>Refund receipt</button>
+          ) : null}
           <button className="h-8 rounded-sm bg-moss px-3 text-sm font-medium text-white" onClick={() => window.print()}>Print</button>
           {onClose ? <button className="h-8 rounded-sm border border-line px-3 text-sm" onClick={onClose}>Close</button> : null}
         </div>
       </div>
+      {refundAllOpen ? (
+        <form onSubmit={refundReceipt} className="no-print mb-4 grid gap-2 rounded-sm border border-line bg-[#121a17] p-3">
+          <p className="text-sm">Return everything still on this receipt and put it back in stock.</p>
+          <Field label="Note">
+            <input value={refundNote} onChange={(event) => setRefundNote(event.target.value)} className={control} />
+          </Field>
+          <div className="flex gap-2">
+            <button disabled={pending} className="h-8 rounded-sm bg-[#8d332c] px-3 text-sm font-medium text-white disabled:opacity-60">{pending ? "Working" : "Refund receipt"}</button>
+            <button type="button" className="h-8 rounded-sm border border-line px-3 text-sm" onClick={() => setRefundAllOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      ) : null}
       <p className="text-xs font-medium text-muted">{pharmacy}</p>
       <h2 className="mt-1 text-lg font-semibold">{sale.receiptNo}</h2>
-      <p className="mt-1 text-sm text-stone-600">
+      <p className="mt-1 text-sm text-muted">
         {when(sale.createdAt)} · {clock(sale.createdAt)} · {who}
       </p>
-      <p className="mt-1 text-sm">{paymentLabel(sale.paymentMethod)}{sale.paymentMethod === "credit" ? " · not collected yet" : ""}</p>
+      <p className="mt-1 text-sm">{paymentLabel(sale.paymentMethod)}{sale.paymentMethod === "credit" && balance > 0 ? " · not collected yet" : ""}</p>
       <ul className="mt-4 divide-y divide-line border-y border-line">
         {sale.items.map((item) => {
           const returned = returnedQty(sale, item.id);
@@ -144,29 +183,29 @@ export function ReceiptSheet({
                 <p className="font-medium">{item.medicine.name}{item.medicine.strength ? ` ${item.medicine.strength}` : ""}</p>
                 <p className="tabular-nums">{money(item.lineCents)}</p>
               </div>
-              <p className="mt-0.5 text-stone-600">{item.quantity} × {money(item.unitPriceCents)}{item.origin === "replace" ? " · given in exchange" : ""}</p>
-              {returned > 0 ? <p className="mt-0.5 text-xs text-[#8a3b32]">Returned {returned}{left > 0 ? ` · ${left} still with the client` : ""}</p> : null}
-              {left > 0 && !active ? (
+              <p className="mt-0.5 text-muted">{item.quantity} × {money(item.unitPriceCents)}{item.origin === "replace" ? " · given in exchange" : ""}</p>
+              {returned > 0 ? <p className="mt-0.5 text-xs text-[#ffb4ab]">Returned {returned}{left > 0 ? ` · ${left} still with the client` : ""}</p> : null}
+              {canRefund && left > 0 && !active ? (
                 <div className="no-print mt-2 flex gap-2">
                   <button className="h-8 rounded-sm border border-line px-2.5 text-xs" onClick={() => openDraft("refund", item.id, left)}>Refund</button>
                   <button className="h-8 rounded-sm border border-line px-2.5 text-xs" onClick={() => openDraft("replace", item.id, left)}>Replace</button>
                 </div>
               ) : null}
               {active && draft.mode === "refund" ? (
-                <form onSubmit={refund} className="no-print mt-3 grid gap-2 rounded-sm border border-line bg-[#f6f8f7] p-3">
+                <form onSubmit={refund} className="no-print mt-3 grid gap-2 rounded-sm border border-line bg-[#121a17] p-3">
                   <Field label="Quantity to refund">
                     <input type="number" min={1} max={left} value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: clamp(event.target.value, left) })} className={control} />
                   </Field>
                   <Field label="Note"><input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} className={control} /></Field>
-                  <p className="text-xs text-stone-600">Give back {money(item.unitPriceCents * draft.quantity)}. The pack returns to stock.</p>
+                  <p className="text-xs text-muted">Give back {money(item.unitPriceCents * draft.quantity)}. The pack returns to stock.</p>
                   <div className="flex gap-2">
-                    <button className="h-8 rounded-sm bg-[#1c1917] px-3 text-xs text-white disabled:bg-stone-300" disabled={pending}>Refund</button>
-                    <button type="button" className="h-8 rounded-sm border border-line bg-white px-3 text-xs" onClick={() => setDraft(null)}>Cancel</button>
+                    <button className="h-8 rounded-sm bg-[#1c1917] px-3 text-xs text-white disabled:bg-[#2c3833]" disabled={pending}>Refund</button>
+                    <button type="button" className="h-8 rounded-sm border border-line bg-surface px-3 text-xs" onClick={() => setDraft(null)}>Cancel</button>
                   </div>
                 </form>
               ) : null}
               {active && draft.mode === "replace" ? (
-                <form onSubmit={replace} className="no-print mt-3 grid gap-2 rounded-sm border border-line bg-[#f6f8f7] p-3">
+                <form onSubmit={replace} className="no-print mt-3 grid gap-2 rounded-sm border border-line bg-[#121a17] p-3">
                   <Field label="Quantity to take back">
                     <input type="number" min={1} max={left} value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: clamp(event.target.value, left) })} className={control} />
                   </Field>
@@ -182,10 +221,10 @@ export function ReceiptSheet({
                     <input type="number" min={1} value={draft.replacementQuantity} onChange={(event) => setDraft({ ...draft, replacementQuantity: clamp(event.target.value, 999) })} className={control} />
                   </Field>
                   <Field label="Note"><input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} className={control} /></Field>
-                  <p className="text-xs text-stone-600">{differenceText(difference)}</p>
+                  <p className="text-xs text-muted">{differenceText(difference)}</p>
                   <div className="flex gap-2">
-                    <button className="h-8 rounded-sm bg-[#1c1917] px-3 text-xs text-white disabled:bg-stone-300" disabled={pending}>Replace</button>
-                    <button type="button" className="h-8 rounded-sm border border-line bg-white px-3 text-xs" onClick={() => setDraft(null)}>Cancel</button>
+                    <button className="h-8 rounded-sm bg-[#1c1917] px-3 text-xs text-white disabled:bg-[#2c3833]" disabled={pending}>Replace</button>
+                    <button type="button" className="h-8 rounded-sm border border-line bg-surface px-3 text-xs" onClick={() => setDraft(null)}>Cancel</button>
                   </div>
                 </form>
               ) : null}
@@ -202,7 +241,7 @@ export function ReceiptSheet({
                 <p className="tabular-nums">{money(event.amountCents)}</p>
               </div>
               {event.lines.map((line, index) => (
-                <p key={`${event.id}-${index}`} className="text-stone-600">
+                <p key={`${event.id}-${index}`} className="text-muted">
                   {line.direction === "return" ? "Returned" : "Given"} {line.medicine.name}{line.medicine.strength ? ` ${line.medicine.strength}` : ""} × {line.quantity}
                 </p>
               ))}

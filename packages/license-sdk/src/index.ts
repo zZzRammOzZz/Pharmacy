@@ -11,7 +11,12 @@ export const PLANS = {
   professional: {
     label: "Professional",
     seats: 15,
-    features: ["inventory", "sales", "patients", "prescriptions", "suppliers"],
+    features: ["inventory", "sales", "patients", "prescriptions", "suppliers", "reports"],
+  },
+  group: {
+    label: "Group",
+    seats: 40,
+    features: ["inventory", "sales", "patients", "prescriptions", "suppliers", "reports", "branches"],
   },
 } as const;
 

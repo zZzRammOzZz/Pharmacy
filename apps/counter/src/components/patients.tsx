@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, lira, liraOf, money, paymentLabel, Session, when } from "@/lib/api";
+import { allowed, api, lira, liraOf, money, paymentLabel, Session, when } from "@/lib/api";
 import { ClientProfile, Medicine, Patient, Sale } from "@/lib/types";
 import { ReceiptSheet, saleBalance, saleMarks } from "./receipt";
 import { Field, Notice, Panel, PrimaryButton, control, quietSubmit } from "./ui";
@@ -144,19 +144,19 @@ export function Patients({ session }: { session: Session }) {
       <div>
         <Notice message={error} />
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, phone, or ID" className={`${control} mb-3`} />
-        <div className="rounded-sm border border-line bg-white">
-          {visible.length === 0 ? <p className="px-4 py-8 text-sm text-stone-500">No clients match.</p> : null}
+        <div className="rounded-sm border border-line bg-surface">
+          {visible.length === 0 ? <p className="px-4 py-8 text-sm text-muted">No clients match.</p> : null}
           {visible.map((patient) => (
             <button
               key={patient.id}
               onClick={() => open(patient.id).catch((err: Error) => setError(err.message))}
-              className={`flex w-full items-center justify-between gap-3 border-b border-line px-4 py-3 text-left text-sm last:border-b-0 ${selected === patient.id ? "bg-[#e7f3ee]" : "hover:bg-[#f6f8f7]"}`}
+              className={`flex w-full items-center justify-between gap-3 border-b border-line px-4 py-3 text-left text-sm last:border-b-0 ${selected === patient.id ? "bg-[#1a3329]" : "hover:bg-white/5"}`}
             >
               <span>
                 <span className="font-medium">{patient.name}</span>
-                <span className="mt-0.5 block text-xs text-stone-500">{patient.phone || "No phone"}</span>
+                <span className="mt-0.5 block text-xs text-muted">{patient.phone || "No phone"}</span>
               </span>
-              {patient.allergies ? <span className="shrink-0 rounded-sm bg-[#f8e8e6] px-1.5 py-0.5 text-[11px] font-medium text-[#8d332c]">Allergy</span> : null}
+              {patient.allergies ? <span className="shrink-0 rounded-sm bg-[#3a201c] px-1.5 py-0.5 text-[11px] font-medium text-[#ffb4ab]">Allergy</span> : null}
             </button>
           ))}
         </div>
@@ -172,7 +172,7 @@ export function Patients({ session }: { session: Session }) {
             }
           >
             {profile.allergies ? (
-              <p className="border-b border-[#efd0cc] bg-[#fdf6f5] px-4 py-2 text-sm text-[#8d332c]">Allergy: {profile.allergies}</p>
+              <p className="border-b border-[#efd0cc] bg-[#2a1715] px-4 py-2 text-sm text-[#ffb4ab]">Allergy: {profile.allergies}</p>
             ) : null}
             {editing ? (
               <form key={profile.id} onSubmit={quietSubmit(save, setError)} className="grid gap-3 p-4 sm:grid-cols-2">
@@ -206,7 +206,7 @@ export function Patients({ session }: { session: Session }) {
             )}
           </Panel>
         ) : (
-          <p className="text-sm text-stone-500">Select a client to open the profile.</p>
+          <p className="text-sm text-muted">Select a client to open the profile.</p>
         )}
         {profile && !editing ? (
           <Panel title="Account">
@@ -225,26 +225,26 @@ export function Patients({ session }: { session: Session }) {
                 {payMethod === "cash_ll" ? (
                   <Field label="Lira per dollar">
                     <input value={rate} inputMode="numeric" onChange={(event) => setRate(event.target.value.replace(/[^\d]/g, ""))} className={control} placeholder="89500" />
-                    {Number(rate) > 0 && Number(amount) > 0 ? <span className="mt-1 block text-xs font-normal text-stone-600">Collect {lira(liraOf(Math.round(Number(amount) * 100), Number(rate)))} LL</span> : null}
+                    {Number(rate) > 0 && Number(amount) > 0 ? <span className="mt-1 block text-xs font-normal text-muted">Collect {lira(liraOf(Math.round(Number(amount) * 100), Number(rate)))} LL</span> : null}
                   </Field>
                 ) : null}
                 <Field label="Note"><input value={payNote} onChange={(event) => setPayNote(event.target.value)} className={control} /></Field>
                 <div className="sm:col-span-2"><PrimaryButton pending={paying}>Receive on account</PrimaryButton></div>
               </form>
             ) : (
-              <p className="border-b border-line px-4 py-3 text-sm text-stone-500">{profile.owedCents < 0 ? "This client has money in credit." : "Nothing is owed on account."}</p>
+              <p className="border-b border-line px-4 py-3 text-sm text-muted">{profile.owedCents < 0 ? "This client has money in credit." : "Nothing is owed on account."}</p>
             )}
             <ul>
               {(profile.payments || []).map((payment) => (
                 <li key={payment.id} className="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3 text-sm last:border-b-0">
                   <span>
-                    <span className="font-medium">{paymentLabel(payment.method)}</span>
-                    <span className="ml-2 text-xs text-stone-500">{when(payment.createdAt)}{payment.note ? ` · ${payment.note}` : ""}{payment.llAmount ? ` · ${lira(payment.llAmount)} LL` : ""}</span>
+                    <span className="font-medium">{payment.receiptNo ? `${payment.receiptNo} · ` : ""}{paymentLabel(payment.method)}</span>
+                    <span className="ml-2 text-xs text-muted">{when(payment.createdAt)}{payment.note ? ` · ${payment.note}` : ""}{payment.llAmount ? ` · ${lira(payment.llAmount)} LL` : ""}</span>
                   </span>
                   <span className="tabular-nums">{money(payment.amountCents)}</span>
                 </li>
               ))}
-              {(profile.payments || []).length === 0 ? <li className="px-4 py-4 text-sm text-stone-500">No payments against the account yet.</li> : null}
+              {(profile.payments || []).length === 0 ? <li className="px-4 py-4 text-sm text-muted">No payments against the account yet.</li> : null}
             </ul>
           </Panel>
         ) : null}
@@ -255,6 +255,7 @@ export function Patients({ session }: { session: Session }) {
             pharmacy={session.user.tenant.name}
             medicines={medicines}
             clientName={profile.name}
+            canRefund={allowed(session, "refund")}
             onClose={() => setReceipt(null)}
             onChange={async (sale) => {
               setReceipt(sale);
@@ -275,7 +276,7 @@ export function Patients({ session }: { session: Session }) {
                 {profile.sales.map((sale) => (
                   <li key={sale.id} className="border-b border-line last:border-b-0">
                     <button
-                      className={`block w-full px-4 py-3 text-left text-sm ${receipt?.id === sale.id ? "bg-[#e7f3ee]" : "hover:bg-[#f6f8f7]"}`}
+                      className={`block w-full px-4 py-3 text-left text-sm ${receipt?.id === sale.id ? "bg-[#1a3329]" : "hover:bg-white/5"}`}
                       onClick={() => {
                         setReceipt(sale);
                         if (medicines.length === 0) {
@@ -287,14 +288,14 @@ export function Patients({ session }: { session: Session }) {
                         <span className="font-medium">{sale.receiptNo}</span>
                         <span className="tabular-nums">{money(saleBalance(sale))}</span>
                       </span>
-                      <span className="mt-0.5 block text-xs text-stone-500">
+                      <span className="mt-0.5 block text-xs text-muted">
                         {when(sale.createdAt)} · {paymentLabel(sale.paymentMethod)} · {sale.items.map((item) => `${item.medicine.name} × ${item.quantity}`).join(", ")}
-                        {saleMarks(sale).map((mark) => <span key={mark} className="ml-2 font-medium text-[#8a3b32]">{mark}</span>)}
+                        {saleMarks(sale).map((mark) => <span key={mark} className="ml-2 font-medium text-[#ffb4ab]">{mark}</span>)}
                       </span>
                     </button>
                   </li>
                 ))}
-                {profile.sales.length === 0 ? <li className="px-4 py-6 text-sm text-stone-500">No receipts on this profile.</li> : null}
+                {profile.sales.length === 0 ? <li className="px-4 py-6 text-sm text-muted">No receipts on this profile.</li> : null}
               </ul>
             </Panel>
             {scripts ? (
@@ -304,14 +305,14 @@ export function Patients({ session }: { session: Session }) {
                     <li key={script.id} className="border-b border-line px-4 py-3 text-sm last:border-b-0">
                       <div className="flex items-center justify-between">
                         <span className="font-medium">{script.doctorName || "No doctor named"}</span>
-                        <span className="capitalize text-xs text-stone-500">{script.status}</span>
+                        <span className="capitalize text-xs text-muted">{script.status}</span>
                       </div>
-                      <p className="mt-0.5 text-xs text-stone-500">
+                      <p className="mt-0.5 text-xs text-muted">
                         {when(script.createdAt)} · {script.items.map((item) => `${item.medicine.name} × ${item.quantity}`).join(", ")}
                       </p>
                     </li>
                   ))}
-                  {profile.prescriptions.length === 0 ? <li className="px-4 py-6 text-sm text-stone-500">No prescriptions on this profile.</li> : null}
+                  {profile.prescriptions.length === 0 ? <li className="px-4 py-6 text-sm text-muted">No prescriptions on this profile.</li> : null}
                 </ul>
               </Panel>
             ) : null}

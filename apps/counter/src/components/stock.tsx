@@ -245,7 +245,7 @@ export function Stock({ session }: { session: Session }) {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap gap-1">
+      <div className="mb-5 flex flex-wrap gap-2">
         {(
           [
             ["catalog", "Catalog"],
@@ -261,21 +261,21 @@ export function Stock({ session }: { session: Session }) {
               setError("");
               setSaved("");
             }}
-            className={`h-9 rounded-sm px-3 text-sm ${tab === id ? "bg-[#e7f3ee] font-medium text-mossdeep" : "border border-line bg-white text-muted"}`}
+            className={`h-10 rounded-lg px-3.5 text-sm ${tab === id ? "bg-[#1a3329] font-semibold text-mossdeep" : "border border-line bg-surface text-muted shadow-sm"}`}
           >
             {label}
-            {id === "waste" && expiredPacks > 0 ? <span className="ml-2 text-[#8d332c]">{expiredPacks}</span> : null}
+            {id === "waste" && expiredPacks > 0 ? <span className="ml-2 text-[#ffb4ab]">{expiredPacks}</span> : null}
           </button>
         ))}
       </div>
       <Notice message={error} />
-      {saved ? <p className="mb-3 rounded-sm border border-[#cfe3d8] bg-[#f4faf6] px-3 py-2 text-sm text-mossdeep">{saved}</p> : null}
+      {saved ? <p className="mb-3 rounded-sm border border-[#cfe3d8] bg-[#143028] px-3 py-2 text-sm text-mossdeep">{saved}</p> : null}
 
       {tab === "catalog" ? (
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div>
             {expiredPacks > 0 ? (
-              <p className="mb-3 rounded-sm border border-[#efd0cc] bg-[#fdf6f5] px-3 py-2 text-sm text-[#8d332c]">
+              <p className="mb-3 rounded-sm border border-[#efd0cc] bg-[#2a1715] px-3 py-2 text-sm text-[#ffb4ab]">
                 {expiredPacks} packs are past expiry. They cannot be sold. Record them under Waste.
               </p>
             ) : null}
@@ -289,14 +289,14 @@ export function Stock({ session }: { session: Session }) {
                   ["reorder", "Reorder"],
                 ] as const
               ).map(([id, label]) => (
-                <button key={id} onClick={() => setFilter(id)} className={`h-9 border px-3 text-sm ${filter === id ? "border-moss bg-[#eef6f1]" : "border-line bg-white"}`}>
+                <button key={id} onClick={() => setFilter(id)} className={`h-9 border px-3 text-sm ${filter === id ? "border-moss bg-[#1a3329]" : "border-line bg-surface"}`}>
                   {label}
                 </button>
               ))}
             </div>
-            <div className="overflow-x-auto rounded-sm border border-line bg-white">
+            <div className="overflow-x-auto rounded-sm border border-line bg-surface">
               <table className="w-full text-left text-sm">
-                <thead className="bg-[#f6f8f7] text-xs text-muted">
+                <thead className="bg-[#121a17] text-xs text-muted">
                   <tr>
                     <th className="px-3 py-2 font-medium">Medicine</th>
                     <th className="px-3 py-2 font-medium">Type</th>
@@ -314,25 +314,25 @@ export function Stock({ session }: { session: Session }) {
                         <tr className="cursor-pointer border-t border-line" onClick={() => setOpenId(openId === medicine.id ? null : medicine.id)}>
                           <td className="px-3 py-3">
                             <span className="font-medium">{medicine.name}</span>
-                            {medicine.strength ? <span className="text-stone-500"> {medicine.strength}</span> : null}
-                            <span className="mt-0.5 block text-xs text-stone-500">{medicine.sku}</span>
+                            {medicine.strength ? <span className="text-muted"> {medicine.strength}</span> : null}
+                            <span className="mt-0.5 block text-xs text-muted">{medicine.sku}</span>
                           </td>
                           <td className="px-3 py-3 capitalize">{labelOf(types, medicine.medicineType)}</td>
                           <td className="px-3 py-3 font-mono text-xs">{medicine.barcode || "—"}</td>
-                          <td className={`px-3 py-3 tabular-nums ${medicine.inDate <= medicine.reorderLevel ? "text-[#8a3b32]" : ""}`}>{medicine.inDate}</td>
-                          <td className={`px-3 py-3 tabular-nums ${expiredQty > 0 ? "text-[#8d332c]" : "text-stone-400"}`}>{expiredQty || "—"}</td>
+                          <td className={`px-3 py-3 tabular-nums ${medicine.inDate <= medicine.reorderLevel ? "text-[#ffb4ab]" : ""}`}>{medicine.inDate}</td>
+                          <td className={`px-3 py-3 tabular-nums ${expiredQty > 0 ? "text-[#ffb4ab]" : "text-muted"}`}>{expiredQty || "—"}</td>
                           <td className="px-3 py-3"><ExpiryText status={medicine.expiryStatus} date={medicine.nearestExpiry} /></td>
                         </tr>
                         {openId === medicine.id ? (
-                          <tr className="border-t border-line bg-[#f8faf9]">
+                          <tr className="border-t border-line bg-[#121a17]">
                             <td colSpan={6} className="px-3 py-3">
-                              {medicine.batches.filter((batch) => batch.quantity > 0).length === 0 ? <p className="text-sm text-stone-500">No packs on the shelf.</p> : null}
+                              {medicine.batches.filter((batch) => batch.quantity > 0).length === 0 ? <p className="text-sm text-muted">No packs on the shelf.</p> : null}
                               <ul className="space-y-1 text-sm">
                                 {medicine.batches.filter((batch) => batch.quantity > 0).map((batch) => (
                                   <li key={batch.id} className="flex flex-wrap items-center justify-between gap-2">
                                     <span>
                                       Batch {batch.batchNumber}
-                                      {batch.serialNumber ? <span className="ml-2 font-mono text-xs text-stone-500">{batch.serialNumber}</span> : null}
+                                      {batch.serialNumber ? <span className="ml-2 font-mono text-xs text-muted">{batch.serialNumber}</span> : null}
                                     </span>
                                     <span className="flex items-center gap-3">
                                       <span className="tabular-nums">{batch.quantity}</span>
@@ -348,7 +348,7 @@ export function Stock({ session }: { session: Session }) {
                     );
                   })}
                   {visible.length === 0 ? (
-                    <tr><td className="px-3 py-8 text-stone-500" colSpan={6}>Nothing matches that search.</td></tr>
+                    <tr><td className="px-3 py-8 text-muted" colSpan={6}>Nothing matches that search.</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -400,7 +400,7 @@ export function Stock({ session }: { session: Session }) {
                   <Field label="Expiry"><input name="expiryDate" type="date" required className={control} /></Field>
                   <Field label="Cost each"><input name="cost" type="number" min="0" step="0.01" defaultValue={0} className={control} /></Field>
                 </div>
-                <button className="h-9 rounded-sm border border-line bg-white text-sm">Add line</button>
+                <button className="h-9 rounded-sm border border-line bg-surface text-sm">Add line</button>
               </form>
             ) : null}
             <ul>
@@ -408,14 +408,14 @@ export function Stock({ session }: { session: Session }) {
                 <li key={`${line.batchNumber}-${index}`} className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 text-sm">
                   <span>
                     <span className="font-medium">{line.name}</span>
-                    <span className="mt-0.5 block text-xs text-stone-500">
+                    <span className="mt-0.5 block text-xs text-muted">
                       {line.batchNumber}{line.serialNumber ? ` · ${line.serialNumber}` : ""} · {line.quantity} · {line.expiryDate}
                     </span>
                   </span>
                   <button className="text-xs text-muted" onClick={() => setDraft((current) => current.filter((_, item) => item !== index))}>Remove</button>
                 </li>
               ))}
-              {draft.length === 0 ? <li className="px-4 py-6 text-sm text-stone-500">No lines yet. Expiry is required on every pack.</li> : null}
+              {draft.length === 0 ? <li className="px-4 py-6 text-sm text-muted">No lines yet. Expiry is required on every pack.</li> : null}
             </ul>
             {canEdit ? (
               <form className="grid gap-3 p-4" onSubmit={quietSubmit(postPurchase, setError)}>
@@ -437,16 +437,16 @@ export function Stock({ session }: { session: Session }) {
                 <li key={purchase.id} className="border-b border-line px-4 py-3 text-sm last:border-b-0">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{purchase.reference}</span>
-                    <span className="text-xs text-stone-500">{when(purchase.createdAt)}</span>
+                    <span className="text-xs text-muted">{when(purchase.createdAt)}</span>
                   </div>
                   {purchase.lines.map((line) => (
-                    <p key={line.id} className="mt-1 text-xs text-stone-500">
+                    <p key={line.id} className="mt-1 text-xs text-muted">
                       {line.medicine.name} · {line.batchNumber}{line.serialNumber ? ` · ${line.serialNumber}` : ""} · {line.quantity} · exp {when(line.expiryDate)}
                     </p>
                   ))}
                 </li>
               ))}
-              {purchases.length === 0 ? <li className="px-4 py-6 text-sm text-stone-500">No purchases posted yet.</li> : null}
+              {purchases.length === 0 ? <li className="px-4 py-6 text-sm text-muted">No purchases posted yet.</li> : null}
             </ul>
           </Panel>
         </div>
@@ -495,7 +495,7 @@ export function Stock({ session }: { session: Session }) {
           <Panel title="Record waste" action={<span className="text-xs text-muted">Expired packs are listed first</span>}>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="bg-[#f6f8f7] text-xs text-muted">
+                <thead className="bg-[#121a17] text-xs text-muted">
                   <tr>
                     <th className="px-3 py-2 font-medium">Pack</th>
                     <th className="px-3 py-2 font-medium">Expiry</th>
@@ -508,7 +508,7 @@ export function Stock({ session }: { session: Session }) {
                     <tr key={batch.id} className="border-t border-line align-top">
                       <td className="px-3 py-3">
                         <span className="font-medium">{batch.medicine.name}</span>
-                        <span className="mt-0.5 block text-xs text-stone-500">
+                        <span className="mt-0.5 block text-xs text-muted">
                           {batch.batchNumber}{batch.serialNumber ? ` · ${batch.serialNumber}` : ""}
                         </span>
                       </td>
@@ -530,7 +530,7 @@ export function Stock({ session }: { session: Session }) {
                     </tr>
                   ))}
                   {shelf.length === 0 ? (
-                    <tr><td className="px-3 py-8 text-stone-500" colSpan={canEdit ? 4 : 3}>The shelf is empty.</td></tr>
+                    <tr><td className="px-3 py-8 text-muted" colSpan={canEdit ? 4 : 3}>The shelf is empty.</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -544,8 +544,8 @@ export function Stock({ session }: { session: Session }) {
 }
 
 function ExpiryText({ status, date, days }: { status: string; date: string | null; days?: number }) {
-  if (!date || status === "none") return <span className="text-stone-400">—</span>;
-  const tone = status === "expired" ? "text-[#8d332c]" : status === "critical" ? "text-[#8a5a12]" : status === "soon" ? "text-[#6b5b2e]" : "text-stone-600";
+  if (!date || status === "none") return <span className="text-muted">—</span>;
+  const tone = status === "expired" ? "text-[#ffb4ab]" : status === "critical" ? "text-[#f3d7a1]" : status === "soon" ? "text-[#6b5b2e]" : "text-muted";
   const extra = days === undefined ? "" : days < 0 ? ` · ${Math.abs(days)}d overdue` : days === 0 ? " · today" : ` · ${days}d`;
   return <span className={tone}>{when(date)}{extra}</span>;
 }
@@ -558,17 +558,17 @@ function MovementList({ title, rows, empty }: { title: string; rows: Movement[];
           <li key={row.id} className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 text-sm last:border-b-0">
             <span>
               <span className="font-medium">{row.medicine.name}</span>
-              <span className="mt-0.5 block text-xs text-stone-500">
+              <span className="mt-0.5 block text-xs text-muted">
                 {row.batch.batchNumber} · {labelReason(row.reason)}{row.note ? ` · ${row.note}` : ""}
               </span>
             </span>
             <span className="text-right">
-              <span className={`block tabular-nums ${row.quantity < 0 ? "text-[#8d332c]" : "text-mossdeep"}`}>{row.quantity > 0 ? `+${row.quantity}` : row.quantity}</span>
-              <span className="text-xs text-stone-500">{when(row.createdAt)}</span>
+              <span className={`block tabular-nums ${row.quantity < 0 ? "text-[#ffb4ab]" : "text-mossdeep"}`}>{row.quantity > 0 ? `+${row.quantity}` : row.quantity}</span>
+              <span className="text-xs text-muted">{when(row.createdAt)}</span>
             </span>
           </li>
         ))}
-        {rows.length === 0 ? <li className="px-4 py-6 text-sm text-stone-500">{empty}</li> : null}
+        {rows.length === 0 ? <li className="px-4 py-6 text-sm text-muted">{empty}</li> : null}
       </ul>
     </Panel>
   );

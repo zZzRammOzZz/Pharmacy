@@ -38,6 +38,8 @@ model Tenant {
   movements     StockMovement[]
   saleEvents    SaleEvent[]
   accountPayments AccountPayment[]
+  supplierPayments SupplierPayment[]
+  branches      Branch[]
 }
 
 model License {
@@ -63,10 +65,36 @@ model TenantUser {
   email        String
   name         String
   role         String
+  permissions  String   @default("[]")
   passwordHash String
   createdAt    DateTime @default(now())
+  sales        Sale[]            @relation("SaleStaff")
+  saleEvents   SaleEvent[]       @relation("EventStaff")
+  accountPayments AccountPayment[] @relation("PaymentStaff")
+  supplierPayments SupplierPayment[] @relation("SupplierPaymentStaff")
+  branchId     String?
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, email])
+}
+
+model Branch {
+  id          String            @id @default(cuid())
+  tenantId    String
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  llPerUsd    Int               @default(0)
+  createdAt   DateTime          @default(now())
+  staff       TenantUser[]
+  batches     StockBatch[]
+  movements   StockMovement[]
+  purchases   Purchase[]
+  sales       Sale[]
+  saleEvents  SaleEvent[]
+  accountPayments AccountPayment[]
+  supplierPayments SupplierPayment[]
+
+  @@unique([tenantId, name])
 }
 
 model Supplier {
@@ -83,6 +111,7 @@ model Supplier {
   notes        String?
   createdAt    DateTime   @default(now())
   purchases    Purchase[]
+  payments     SupplierPayment[]
 }
 
 model Medicine {
@@ -114,6 +143,8 @@ model StockBatch {
   id          String   @id @default(cuid())
   tenantId    String
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId    String?
+  branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
   medicineId  String
   medicine    Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
   batchNumber String
@@ -134,12 +165,15 @@ model Purchase {
   id         String         @id @default(cuid())
   tenantId   String
   tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId   String?
+  branch     Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
   supplierId String?
   supplier   Supplier?      @relation(fields: [supplierId], references: [id])
   reference  String
   notes      String?
   createdAt  DateTime       @default(now())
   lines      PurchaseLine[]
+  payments   SupplierPaymentLine[]
 }
 
 model PurchaseLine {
@@ -161,6 +195,8 @@ model StockMovement {
   id         String     @id @default(cuid())
   tenantId   String
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId   String?
+  branch     Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
   medicineId String
   medicine   Medicine   @relation(fields: [medicineId], references: [id])
   batchId    String
@@ -224,9 +260,14 @@ model Sale {
   paymentMethod String     @default("cash_usd")
   llPerUsd      Int?
   llAmount      Int?
+  branchId      String?
+  branch        Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  staffId       String?
+  staff         TenantUser? @relation("SaleStaff", fields: [staffId], references: [id], onDelete: SetNull)
   createdAt     DateTime   @default(now())
   items      SaleItem[]
   events     SaleEvent[]
+  closings   AccountPaymentLine[]
 
   @@unique([tenantId, receiptNo])
 }
@@ -263,6 +304,10 @@ model SaleEvent {
   kind        String
   note        String?
   amountCents Int
+  branchId    String?
+  branch      Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  staffId     String?
+  staff       TenantUser?     @relation("EventStaff", fields: [staffId], references: [id], onDelete: SetNull)
   createdAt   DateTime        @default(now())
   lines       SaleEventLine[]
 }
@@ -281,15 +326,63 @@ model SaleEventLine {
 }
 
 model AccountPayment {
-  id          String   @id @default(cuid())
+  id          String               @id @default(cuid())
   tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   patientId   String
-  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patient     Patient              @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  receiptNo   String?
   method      String
   amountCents Int
   llPerUsd    Int?
   llAmount    Int?
   note        String?
-  createdAt   DateTime @default(now())
+  branchId    String?
+  branch      Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  staffId     String?
+  staff       TenantUser?          @relation("PaymentStaff", fields: [staffId], references: [id], onDelete: SetNull)
+  createdAt   DateTime             @default(now())
+  lines       AccountPaymentLine[]
+
+  @@unique([tenantId, receiptNo])
+}
+
+model AccountPaymentLine {
+  id          String         @id @default(cuid())
+  paymentId   String
+  payment     AccountPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  saleId      String
+  sale        Sale           @relation(fields: [saleId], references: [id])
+  amountCents Int
+}
+
+model SupplierPayment {
+  id          String                @id @default(cuid())
+  tenantId    String
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId  String
+  supplier    Supplier              @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  receiptNo   String?
+  method      String
+  amountCents Int
+  llPerUsd    Int?
+  llAmount    Int?
+  note        String?
+  branchId    String?
+  branch      Branch?               @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  staffId     String?
+  staff       TenantUser?           @relation("SupplierPaymentStaff", fields: [staffId], references: [id], onDelete: SetNull)
+  createdAt   DateTime              @default(now())
+  lines       SupplierPaymentLine[]
+
+  @@unique([tenantId, receiptNo])
+}
+
+model SupplierPaymentLine {
+  id          String          @id @default(cuid())
+  paymentId   String
+  payment     SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  purchaseId  String
+  purchase    Purchase        @relation(fields: [purchaseId], references: [id])
+  amountCents Int
 }

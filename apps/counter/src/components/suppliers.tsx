@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, Session, when } from "@/lib/api";
+import { api, money, Session, when } from "@/lib/api";
 import { Supplier, SupplierProfile } from "@/lib/types";
 import { Field, Notice, Panel, PrimaryButton, control, quietSubmit } from "./ui";
 
@@ -74,16 +74,16 @@ export function Suppliers({ session }: { session: Session }) {
       <div>
         <Notice message={error} />
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, contact, or phone" className={`${control} mb-3`} />
-        <div className="rounded-sm border border-line bg-white">
-          {visible.length === 0 ? <p className="px-4 py-8 text-sm text-stone-500">No suppliers on file.</p> : null}
+        <div className="rounded-sm border border-line bg-surface">
+          {visible.length === 0 ? <p className="px-4 py-8 text-sm text-muted">No suppliers on file.</p> : null}
           {visible.map((supplier) => (
             <button
               key={supplier.id}
               onClick={() => open(supplier.id).catch((err: Error) => setError(err.message))}
-              className={`block w-full border-b border-line px-4 py-3 text-left text-sm last:border-b-0 ${selected === supplier.id ? "bg-[#e7f3ee]" : "hover:bg-[#f6f8f7]"}`}
+              className={`block w-full border-b border-line px-4 py-3 text-left text-sm last:border-b-0 ${selected === supplier.id ? "bg-[#1a3329]" : "hover:bg-white/5"}`}
             >
               <span className="font-medium">{supplier.name}</span>
-              <span className="mt-0.5 block text-xs text-stone-500">{supplier.contactName || supplier.phone || "No contact"}</span>
+              <span className="mt-0.5 block text-xs text-muted">{supplier.contactName || supplier.phone || "No contact"}</span>
             </button>
           ))}
         </div>
@@ -113,29 +113,33 @@ export function Suppliers({ session }: { session: Session }) {
                 <div className="sm:col-span-2"><Fact label="Address" value={profile.address} /></div>
                 <div className="sm:col-span-2"><Fact label="Notes" value={profile.notes} /></div>
                 <Fact label="Invoices" value={String(profile.purchaseCount)} />
+                <Fact label="Outstanding" value={money(profile.owedCents || 0)} />
               </dl>
             )}
           </Panel>
         ) : (
-          <p className="text-sm text-stone-500">Select a supplier to open the profile.</p>
+          <p className="text-sm text-muted">Select a supplier to open the profile.</p>
         )}
         {profile && !editing ? (
           <Panel title="Goods received">
             <ul>
               {profile.purchases.map((purchase) => (
                 <li key={purchase.id} className="border-b border-line px-4 py-3 text-sm last:border-b-0">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <span className="font-medium">{purchase.reference}</span>
-                    <span className="text-xs text-stone-500">{when(purchase.createdAt)}</span>
+                    <span className="text-right text-xs text-muted">
+                      {when(purchase.createdAt)}
+                      <span className="mt-0.5 block text-sm font-medium text-ink">{money(purchase.lines.reduce((sum, line) => sum + line.quantity * line.costCents, 0))}</span>
+                    </span>
                   </div>
                   {purchase.lines.map((line) => (
-                    <p key={line.id} className="mt-1 text-xs text-stone-500">
+                    <p key={line.id} className="mt-1 text-xs text-muted">
                       {line.medicine.name} · {line.batchNumber} · {line.quantity} · exp {when(line.expiryDate)}
                     </p>
                   ))}
                 </li>
               ))}
-              {profile.purchases.length === 0 ? <li className="px-4 py-6 text-sm text-stone-500">No invoices from this supplier yet.</li> : null}
+              {profile.purchases.length === 0 ? <li className="px-4 py-6 text-sm text-muted">No invoices from this supplier yet.</li> : null}
             </ul>
           </Panel>
         ) : null}

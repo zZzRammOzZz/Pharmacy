@@ -80,8 +80,8 @@ export class UpdateTenantDto {
 
 export class IssueLicenseDto {
   @IsOptional()
-  @IsIn(["standard", "professional"])
-  plan?: "standard" | "professional";
+  @IsIn(["standard", "professional", "group"])
+  plan?: "standard" | "professional" | "group";
 
   @IsOptional()
   @Type(() => Number)
