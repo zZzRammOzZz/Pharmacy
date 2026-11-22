@@ -40,6 +40,7 @@ model Tenant {
   accountPayments AccountPayment[]
   supplierPayments SupplierPayment[]
   branches      Branch[]
+  staffLogs     StaffLog[]
 }
 
 model License {
@@ -72,6 +73,7 @@ model TenantUser {
   saleEvents   SaleEvent[]       @relation("EventStaff")
   accountPayments AccountPayment[] @relation("PaymentStaff")
   supplierPayments SupplierPayment[] @relation("SupplierPaymentStaff")
+  staffLogs    StaffLog[]
   branchId     String?
   branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
@@ -93,8 +95,24 @@ model Branch {
   saleEvents  SaleEvent[]
   accountPayments AccountPayment[]
   supplierPayments SupplierPayment[]
+  staffLogs    StaffLog[]
 
   @@unique([tenantId, name])
+}
+
+model StaffLog {
+  id        String      @id @default(cuid())
+  tenantId  String
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staffId   String?
+  staff     TenantUser? @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  branchId  String?
+  branch    Branch?     @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  action    String
+  summary   String
+  createdAt DateTime    @default(now())
+
+  @@index([tenantId, createdAt])
 }
 
 model Supplier {
@@ -205,6 +223,8 @@ model StockMovement {
   quantity   Int
   reason     String?
   note       String?
+  expiryFrom DateTime?
+  expiryTo   DateTime?
   createdAt  DateTime   @default(now())
 }
 

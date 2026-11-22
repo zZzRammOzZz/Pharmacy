@@ -67,6 +67,45 @@ export class CreateMedicineDto {
   reorderLevel?: number;
 }
 
+export class UpdateMedicineDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  sku?: string;
+
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+
+  @IsOptional()
+  @IsIn(["tablet", "capsule", "syrup", "suspension", "injection", "cream", "drops", "inhaler", "device", "other"])
+  medicineType?: string;
+
+  @IsOptional()
+  @IsString()
+  genericName?: string;
+
+  @IsOptional()
+  @IsString()
+  strength?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  unitPriceCents?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  reorderLevel?: number;
+}
+
 export class ReceiveStockDto {
   @IsString()
   medicineId!: string;
@@ -393,6 +432,55 @@ export class CreatePurchaseDto {
   lines!: PurchaseLineDto[];
 }
 
+export class UpdatePurchaseLineDto {
+  @IsString()
+  id!: string;
+
+  @IsString()
+  medicineId!: string;
+
+  @IsString()
+  @MinLength(1)
+  batchNumber!: string;
+
+  @IsOptional()
+  @IsString()
+  serialNumber?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @IsISO8601()
+  expiryDate!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  costCents!: number;
+}
+
+export class UpdatePurchaseDto {
+  @IsString()
+  @MinLength(1)
+  reference!: string;
+
+  @IsOptional()
+  @IsString()
+  supplierId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => UpdatePurchaseLineDto)
+  lines!: UpdatePurchaseLineDto[];
+}
+
 export class AdjustmentDto {
   @IsString()
   batchId!: string;
@@ -401,8 +489,12 @@ export class AdjustmentDto {
   @IsInt()
   quantityDelta!: number;
 
-  @IsIn(["count", "found", "correction", "return"])
+  @IsIn(["count", "found", "correction", "return", "expiry"])
   reason!: string;
+
+  @IsOptional()
+  @IsISO8601()
+  expiryDate?: string;
 
   @IsOptional()
   @IsString()
@@ -412,6 +504,24 @@ export class AdjustmentDto {
 export class WasteDto {
   @IsString()
   batchId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @IsIn(["expired", "damaged", "broken", "recalled", "contaminated", "spilled"])
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+export class UpdateWasteDto {
+  @IsOptional()
+  @IsString()
+  batchId?: string;
 
   @Type(() => Number)
   @IsInt()

@@ -80,6 +80,14 @@ function Mark({ section }: { section: Section }) {
       </svg>
     );
   }
+  if (section === "employeeLog") {
+    return (
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 8v4l2.5 2" />
+      </svg>
+    );
+  }
   if (section === "reports") {
     return (
       <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -108,6 +116,7 @@ const titles: Record<Section, { title: string; detail: string }> = {
   wholesalers: { title: "Wholesaler aged", detail: "Open invoices by age, and a receipt when the pharmacy pays" },
   orders: { title: "To order", detail: "What to buy this morning, grouped by the last wholesaler" },
   reports: { title: "Reports", detail: "What sold, what it cost, and what is still owed" },
+  employeeLog: { title: "Employee log", detail: "Who signed in, who signed out, and what they did" },
   staff: { title: "Staff", detail: "Seats on this license, and what each person can do" },
 };
 
@@ -196,6 +205,7 @@ export function Shell({
     ...(features.includes("suppliers") ? [{ id: "wholesalers" as const, label: "Wholesaler aged", badge: badges.wholesalers }] : []),
     ...(features.includes("suppliers") ? [{ id: "orders" as const, label: "To order", badge: badges.orders }] : []),
     ...(features.includes("reports") && allowed(session, "reports") ? [{ id: "reports" as const, label: "Reports" }] : []),
+    ...(session.user.role === "owner" ? [{ id: "employeeLog" as const, label: "Employee log" }] : []),
     ...(session.user.role === "owner" ? [{ id: "staff" as const, label: "Staff" }] : []),
   ];
 

@@ -7,6 +7,7 @@ export type Batch = {
   quantity: number;
   expiryDate: string;
   costCents: number;
+  receivedAt?: string;
   expiryStatus: ExpiryStatus;
   daysToExpiry: number;
 };
@@ -213,7 +214,7 @@ export type Reading = {
   } | null;
 };
 
-export type ReportRange = "today" | "month";
+export type ReportRange = "today" | "month" | "custom";
 
 export type Report = {
   range: ReportRange;
@@ -233,6 +234,8 @@ export type Report = {
   byDay: { date: string; soldCents: number; collectedCents: number; costCents: number; profitCents: number; receipts: number }[];
   byProduct: { id: string; name: string; quantity: number; soldCents: number; costCents: number; profitCents: number }[];
   byStaff: { id: string; name: string; role: string; receipts: number; soldCents: number; collectedCents: number }[];
+  byMethod: { method: string; receipts: number; cents: number }[];
+  highlights: string[];
 };
 
 export type OrderLine = {
@@ -256,4 +259,16 @@ export type OrderList = {
   groups: { supplierId: string | null; supplierName: string; totalCents: number; lines: OrderLine[] }[];
 };
 
-export type Section = "today" | "register" | "stock" | "patients" | "aged" | "prescriptions" | "suppliers" | "wholesalers" | "orders" | "reports" | "staff";
+export type EmployeeLogReport = {
+  range: ReportRange;
+  from: string;
+  to: string;
+  staff: { id: string; name: string; role: string }[];
+  signIns: number;
+  signOuts: number;
+  sales: number;
+  refunds: number;
+  entries: { at: string; action: string; summary: string; staffId: string | null; name: string; role: string; branch: string | null }[];
+};
+
+export type Section = "today" | "register" | "stock" | "patients" | "aged" | "prescriptions" | "suppliers" | "wholesalers" | "orders" | "reports" | "employeeLog" | "staff";

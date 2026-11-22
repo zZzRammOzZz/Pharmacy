@@ -4,7 +4,7 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { api, Session, when } from "@/lib/api";
 import { Medicine, Patient, Prescription } from "@/lib/types";
 import { PaymentChoice } from "./payment";
-import { Field, Notice, Panel, PrimaryButton, control, quietSubmit } from "./ui";
+import { Dialog, Field, Notice, Panel, PrimaryButton, control, newButton, quietSubmit } from "./ui";
 
 type DraftLine = { medicineId: string; quantity: number; dosage: string };
 type Mode = "preview" | "edit" | "create";
@@ -16,9 +16,9 @@ export function Prescriptions({ session }: { session: Session }) {
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [error, setError] = useState("");
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [pendingOnly, setPendingOnly] = useState(true);
+  const [queue, setQueue] = useState<"pending" | "dispensed">("pending");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<Mode>("create");
+  const [mode, setMode] = useState<Mode>("preview");
   const [method, setMethod] = useState("cash_usd");
   const [rate, setRate] = useState("");
   const canWrite = session.user.role === "owner" || session.user.role === "pharmacist";
@@ -42,7 +42,7 @@ export function Prescriptions({ session }: { session: Session }) {
       .catch(() => undefined);
   }, []);
 
-  const visible = rows.filter((row) => (pendingOnly ? row.status === "pending" : true));
+  const visible = rows.filter((row) => row.status === queue);
 
   function openPreview(prescription: Prescription) {
     setSelectedId(prescription.id);
@@ -81,7 +81,7 @@ export function Prescriptions({ session }: { session: Session }) {
     });
     setConfirmId(null);
     const scripts = await load();
-    if (!scripts.some((row) => row.id === id && row.status === "pending")) setPendingOnly(false);
+    if (!scripts.some((row) => row.id === id && row.status === "pending")) setQueue("dispensed");
   }
 
   function addLine(event: FormEvent<HTMLFormElement>) {
@@ -105,7 +105,7 @@ export function Prescriptions({ session }: { session: Session }) {
     });
     formEl.reset();
     setLines([]);
-    setPendingOnly(true);
+    setQueue("pending");
     await load();
     setSelectedId(created.id);
     setMode("preview");
@@ -130,16 +130,25 @@ export function Prescriptions({ session }: { session: Session }) {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <Notice message={error} />
           <div className="flex gap-2">
-            <button className="h-9 border border-line bg-surface px-3 text-sm" onClick={() => setPendingOnly((value) => !value)}>
-              {pendingOnly ? "Show dispensed" : "Waiting only"}
-            </button>
+            {([
+              ["pending", "Waiting only"],
+              ["dispensed", "Dispensed"],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                className={`h-9 rounded-full px-3 text-sm ${queue === id ? "bg-[#1a3329] font-semibold text-mossdeep" : "bg-surface text-muted shadow-card"}`}
+                onClick={() => setQueue(id)}
+              >
+                {label}
+              </button>
+            ))}
             {canWrite ? (
-              <button className="h-9 border border-line bg-surface px-3 text-sm" onClick={startCreate}>New prescription</button>
+              <button type="button" className={newButton} onClick={startCreate}>New</button>
             ) : null}
           </div>
         </div>
         <div className="rounded-sm border border-line bg-surface">
-          {visible.length === 0 ? <p className="px-4 py-8 text-sm text-muted">The queue is clear.</p> : null}
+          {visible.length === 0 ? <p className="px-4 py-8 text-sm text-muted">{queue === "pending" ? "Nothing is waiting." : "Nothing has been dispensed."}</p> : null}
           {visible.map((prescription) => (
             <button
               key={prescription.id}
@@ -160,7 +169,7 @@ export function Prescriptions({ session }: { session: Session }) {
         </div>
       </div>
 
-      {selected && mode === "preview" ? (
+      {selected ? (
         <ClientCopy prescription={selected} pharmacy={session.user.tenant.name}>
           <div className="no-print mt-4 flex flex-wrap gap-2">
             <button className="h-9 rounded-sm bg-moss px-3 text-sm font-medium text-white" onClick={() => window.print()}>Print for client</button>
@@ -189,36 +198,44 @@ export function Prescriptions({ session }: { session: Session }) {
             ) : null}
           </div>
         </ClientCopy>
-      ) : null}
+      ) : (
+        <p className="text-sm text-muted">Select a prescription to open it.</p>
+      )}
 
       {canWrite && mode === "edit" && selected ? (
-        <ScriptForm
-          title="Update prescription"
-          patients={patients}
-          medicines={medicines}
-          lines={lines}
-          setLines={setLines}
-          patientId={selected.patient.id}
-          doctorName={selected.doctorName || ""}
-          notes={selected.notes || ""}
-          submitLabel="Save prescription"
-          onAddLine={addLine}
-          onSubmit={quietSubmit(save, setError)}
-          onCancel={() => setMode("preview")}
-        />
+        <Dialog title="Update prescription" onClose={() => setMode("preview")}>
+          <ScriptForm
+            plain
+            patients={patients}
+            medicines={medicines}
+            lines={lines}
+            setLines={setLines}
+            patientId={selected.patient.id}
+            doctorName={selected.doctorName || ""}
+            notes={selected.notes || ""}
+            submitLabel="Save prescription"
+            onAddLine={addLine}
+            onSubmit={quietSubmit(save, setError)}
+            onCancel={() => setMode("preview")}
+          />
+        </Dialog>
       ) : null}
 
       {canWrite && mode === "create" ? (
-        <ScriptForm
-          title="New prescription"
-          patients={patients}
-          medicines={medicines}
-          lines={lines}
-          setLines={setLines}
-          submitLabel="File prescription"
-          onAddLine={addLine}
-          onSubmit={quietSubmit(create, setError)}
-        />
+        <Dialog title="New prescription" onClose={() => { setLines([]); setMode("preview"); }}>
+          <div className="px-4 pt-4"><Notice message={error} /></div>
+          <ScriptForm
+            plain
+            patients={patients}
+            medicines={medicines}
+            lines={lines}
+            setLines={setLines}
+            submitLabel="File prescription"
+            onAddLine={addLine}
+            onSubmit={quietSubmit(create, setError)}
+            onCancel={() => { setLines([]); setMode("preview"); }}
+          />
+        </Dialog>
       ) : null}
     </div>
   );
@@ -263,6 +280,7 @@ function ClientCopy({
 
 function ScriptForm({
   title,
+  plain,
   patients,
   medicines,
   lines,
@@ -275,7 +293,8 @@ function ScriptForm({
   onSubmit,
   onCancel,
 }: {
-  title: string;
+  title?: string;
+  plain?: boolean;
   patients: Patient[];
   medicines: Medicine[];
   lines: DraftLine[];
@@ -288,8 +307,8 @@ function ScriptForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel?: () => void;
 }) {
-  return (
-    <Panel title={title}>
+  const body = (
+    <>
       <form onSubmit={onAddLine} className="grid gap-3 border-b border-line p-4">
         <Field label="Medicine">
           <select name="medicineId" required className={control} defaultValue="">
@@ -329,8 +348,10 @@ function ScriptForm({
           {onCancel ? <button type="button" className="h-9 rounded-sm border border-line px-3 text-sm" onClick={onCancel}>Cancel</button> : null}
         </div>
       </form>
-    </Panel>
+    </>
   );
+  if (plain) return body;
+  return <Panel title={title || "Prescription"}>{body}</Panel>;
 }
 
 function scriptBody(form: FormData, lines: DraftLine[]) {

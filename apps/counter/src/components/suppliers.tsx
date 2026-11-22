@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, money, Session, when } from "@/lib/api";
 import { Supplier, SupplierProfile } from "@/lib/types";
-import { Field, Notice, Panel, PrimaryButton, control, quietSubmit } from "./ui";
+import { Dialog, Field, Notice, Panel, PrimaryButton, control, newButton, quietSubmit } from "./ui";
 
 export function Suppliers({ session }: { session: Session }) {
   const [rows, setRows] = useState<Supplier[]>([]);
@@ -11,6 +11,7 @@ export function Suppliers({ session }: { session: Session }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [profile, setProfile] = useState<SupplierProfile | null>(null);
   const [editing, setEditing] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const canEdit = session.user.role === "owner";
 
@@ -52,6 +53,7 @@ export function Suppliers({ session }: { session: Session }) {
       body: JSON.stringify(payload(form)),
     });
     formEl.reset();
+    setCreating(false);
     await loadList();
     await open(created.id);
   }
@@ -73,7 +75,10 @@ export function Suppliers({ session }: { session: Session }) {
     <div className="grid items-start gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
       <div>
         <Notice message={error} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, contact, or phone" className={`${control} mb-3`} />
+        <div className="mb-3 flex gap-2">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, contact, or phone" className={control} />
+          {canEdit ? <button type="button" className={newButton} onClick={() => { setCreating(true); setError(""); }}>New</button> : null}
+        </div>
         <div className="rounded-sm border border-line bg-surface">
           {visible.length === 0 ? <p className="px-4 py-8 text-sm text-muted">No suppliers on file.</p> : null}
           {visible.map((supplier) => (
@@ -143,9 +148,10 @@ export function Suppliers({ session }: { session: Session }) {
             </ul>
           </Panel>
         ) : null}
-        {canEdit ? (
-          <Panel title="New supplier">
+        {creating ? (
+          <Dialog title="New supplier" onClose={() => setCreating(false)}>
             <form onSubmit={quietSubmit(create, setError)} className="grid gap-3 p-4 sm:grid-cols-2">
+              <div className="sm:col-span-2"><Notice message={error} /></div>
               <Field label="Company"><input name="name" required className={control} /></Field>
               <Field label="Contact person"><input name="contactName" className={control} /></Field>
               <Field label="Phone"><input name="phone" className={control} /></Field>
@@ -156,7 +162,7 @@ export function Suppliers({ session }: { session: Session }) {
               <div className="sm:col-span-2"><Field label="Notes"><input name="notes" className={control} /></Field></div>
               <div className="sm:col-span-2"><PrimaryButton>Save supplier</PrimaryButton></div>
             </form>
-          </Panel>
+          </Dialog>
         ) : null}
       </div>
     </div>

@@ -1,4 +1,6 @@
-import { FormEvent, ReactNode } from "react";
+"use client";
+
+import { FormEvent, ReactNode, useEffect } from "react";
 
 export const control =
   "h-11 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink shadow-sm placeholder:text-muted";
@@ -53,6 +55,36 @@ export function PrimaryButton({
     </button>
   );
 }
+
+export function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-10" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="my-auto w-full max-w-2xl overflow-hidden rounded-[24px] bg-surface shadow-card"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <button type="button" className="text-xs text-muted" onClick={onClose}>Close</button>
+        </header>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export const newButton = "h-9 shrink-0 rounded-full bg-moss px-3 text-sm font-semibold text-[#04281c]";
 
 export function quietSubmit(handler: (event: FormEvent<HTMLFormElement>) => Promise<void>, setError: (message: string) => void) {
   return (event: FormEvent<HTMLFormElement>) => {

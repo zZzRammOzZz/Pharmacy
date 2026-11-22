@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loadSession, Session } from "@/lib/api";
+import { api, loadSession, Session } from "@/lib/api";
 import { Section } from "@/lib/types";
 import { Login } from "@/components/login";
 import { Patients } from "@/components/patients";
@@ -14,6 +14,7 @@ import { Orders } from "@/components/orders";
 import { Wholesalers } from "@/components/wholesalers";
 import { Aged } from "@/components/aged";
 import { Reports } from "@/components/reports";
+import { EmployeeLog } from "@/components/employee-log";
 import { Staff } from "@/components/staff";
 import { Today } from "@/components/today";
 
@@ -36,6 +37,7 @@ export default function CounterPage() {
       section={section}
       onSection={setSection}
       onSignOut={() => {
+        void api("/pharmacy/auth/logout", session, { method: "POST" }).catch(() => undefined);
         localStorage.removeItem("pharmacyos_counter");
         setSession(null);
       }}
@@ -54,6 +56,7 @@ export default function CounterPage() {
       {section === "wholesalers" ? <Wholesalers session={session} /> : null}
       {section === "orders" ? <Orders session={session} /> : null}
       {section === "reports" ? <Reports session={session} /> : null}
+      {section === "employeeLog" ? <EmployeeLog session={session} /> : null}
       {section === "staff" ? <Staff session={session} /> : null}
     </Shell>
   );

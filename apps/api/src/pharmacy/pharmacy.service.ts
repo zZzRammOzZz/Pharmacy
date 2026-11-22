@@ -14,12 +14,15 @@ import { licenseFile } from "../platform/licenses.controller";
 import { PrismaService } from "../prisma/prisma.module";
 import {
   CreateMedicineDto,
+  UpdateMedicineDto,
   CreatePatientDto,
   CreatePrescriptionDto,
   UpdatePatientDto,
   UpdateSupplierDto,
   AdjustmentDto,
   CreatePurchaseDto,
+  UpdatePurchaseDto,
+  UpdateWasteDto,
   AccountPaymentDto,
   CreateSaleDto,
   RefundAllDto,
@@ -78,6 +81,9 @@ export class PharmacyService {
       email: user.email,
       name: user.name,
     });
+    await this.prisma.staffLog.create({
+      data: { tenantId: tenant.id, staffId: user.id, action: "login", summary: "Signed in." },
+    }).catch(() => undefined);
     return {
       accessToken,
       licenseToken: encodeLicenseToken(licenseFile(license)),
@@ -100,6 +106,11 @@ export class PharmacyService {
         ? await this.prisma.branch.findMany({ where: { tenantId: tenant.id }, select: { id: true, name: true }, orderBy: { createdAt: "asc" } })
         : [],
     };
+  }
+
+  async logout(user: StaffPrincipal) {
+    await this.wrote(user, "logout", "Signed out.");
+    return { ok: true };
   }
 
   async bootstrap(user: StaffPrincipal) {
@@ -202,6 +213,43 @@ export class PharmacyService {
     });
   }
 
+  async updateMedicine(user: StaffPrincipal, id: string, body: UpdateMedicineDto) {
+    assertFeature(user, "inventory");
+    assertRole(user, ["owner", "pharmacist"]);
+    const medicine = await this.ownedMedicine(user.tenantId, id);
+    const data: {
+      name?: string;
+      sku?: string;
+      barcode?: string | null;
+      medicineType?: string;
+      genericName?: string | null;
+      strength?: string | null;
+      unitPriceCents?: number;
+      reorderLevel?: number;
+    } = {};
+    if (body.name !== undefined) data.name = body.name.trim();
+    if (body.sku !== undefined) {
+      const sku = body.sku.trim().toUpperCase();
+      const clash = await this.prisma.medicine.findUnique({ where: { tenantId_sku: { tenantId: user.tenantId, sku } } });
+      if (clash && clash.id !== medicine.id) throw new ConflictException("SKU already exists in this pharmacy");
+      data.sku = sku;
+    }
+    if (body.barcode !== undefined) {
+      const barcode = cleanCode(body.barcode);
+      if (barcode) {
+        const coded = await this.prisma.medicine.findFirst({ where: { tenantId: user.tenantId, barcode } });
+        if (coded && coded.id !== medicine.id) throw new ConflictException("That barcode is already on another medicine");
+      }
+      data.barcode = barcode;
+    }
+    if (body.medicineType !== undefined) data.medicineType = body.medicineType;
+    if (body.genericName !== undefined) data.genericName = blank(body.genericName);
+    if (body.strength !== undefined) data.strength = blank(body.strength);
+    if (body.unitPriceCents !== undefined) data.unitPriceCents = body.unitPriceCents;
+    if (body.reorderLevel !== undefined) data.reorderLevel = body.reorderLevel;
+    return this.prisma.medicine.update({ where: { id: medicine.id }, data });
+  }
+
   async receiveStock(user: StaffPrincipal, body: ReceiveStockDto) {
     assertFeature(user, "inventory");
     assertRole(user, ["owner", "pharmacist"]);
@@ -240,7 +288,11 @@ export class PharmacyService {
     assertFeature(user, "inventory");
     return this.prisma.purchase.findMany({
       where: { tenantId: user.tenantId, ...this.place(user) },
-      include: { lines: { include: { medicine: true } } },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        payments: { select: { amountCents: true } },
+        lines: { include: { medicine: true, batch: { select: { quantity: true } } } },
+      },
       orderBy: { createdAt: "desc" },
       take: 30,
     });
@@ -250,7 +302,7 @@ export class PharmacyService {
     assertFeature(user, "inventory");
     assertRole(user, ["owner", "pharmacist"]);
     const branchId = this.requireBranch(user);
-    return this.prisma.$transaction(async (tx) => {
+    const saved = await this.prisma.$transaction(async (tx) => {
       const purchase = await tx.purchase.create({
         data: {
           tenantId: user.tenantId,
@@ -311,6 +363,100 @@ export class PharmacyService {
         include: { lines: { include: { medicine: true } } },
       });
     });
+    const packs = saved?.lines.reduce((sum, line) => sum + line.quantity, 0) || 0;
+    await this.wrote(user, "purchase", `Received invoice ${body.reference.trim()}, ${packs === 1 ? "1 pack" : `${packs} packs`}.`);
+    return saved;
+  }
+
+  async updatePurchase(user: StaffPrincipal, id: string, body: UpdatePurchaseDto) {
+    assertFeature(user, "inventory");
+    assertRole(user, ["owner", "manager"]);
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id, tenantId: user.tenantId, ...this.place(user) },
+      include: { lines: { include: { batch: true } }, payments: { select: { amountCents: true } } },
+    });
+    if (!purchase) throw new NotFoundException("Delivery not found");
+    if (body.supplierId) {
+      const supplier = await this.prisma.supplier.findFirst({ where: { id: body.supplierId, tenantId: user.tenantId } });
+      if (!supplier) throw new NotFoundException("Supplier not found");
+    }
+    const seen = new Set<string>();
+    for (const line of body.lines) {
+      if (seen.has(line.id)) throw new BadRequestException("Each pack can only appear once.");
+      seen.add(line.id);
+      if (!purchase.lines.some((existing) => existing.id === line.id)) throw new BadRequestException("That pack is not on this delivery.");
+    }
+    const paid = purchase.payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+    const nextTotal = body.lines.reduce((sum, line) => sum + line.quantity * line.costCents, 0);
+    if (nextTotal < paid) throw new BadRequestException(`This invoice already has $${(paid / 100).toFixed(2)} paid against it. The corrected total has to stay at least that.`);
+    const reference = body.reference.trim();
+    const supplierId = body.supplierId || null;
+    const saved = await this.prisma.$transaction(async (tx) => {
+      await tx.purchase.update({
+        where: { id: purchase.id },
+        data: { reference, supplierId, notes: body.notes?.trim() || null },
+      });
+      for (const existing of purchase.lines) {
+        const next = body.lines.find((line) => line.id === existing.id);
+        if (!next) {
+          await this.removePurchaseLine(tx, user.tenantId, existing);
+          continue;
+        }
+        const expiry = parseExpiry(next.expiryDate);
+        if (Number.isNaN(expiry.getTime())) throw new BadRequestException("Enter a real expiry date");
+        const medicineId = next.medicineId;
+        if (medicineId !== existing.medicineId) {
+          const medicine = await tx.medicine.findFirst({ where: { id: medicineId, tenantId: user.tenantId } });
+          if (!medicine) throw new NotFoundException("Medicine not found");
+          if (!(await this.packUntouched(tx, existing))) {
+            throw new BadRequestException("Some of this pack has already moved, so the medicine stays as it was received.");
+          }
+        }
+        const delta = next.quantity - existing.quantity;
+        if (existing.batch.quantity + delta < 0) {
+          const floor = existing.quantity - existing.batch.quantity;
+          throw new BadRequestException(`${existing.batchNumber} already has stock that left the shelf. The quantity has to stay at least ${Math.max(floor, 1)}.`);
+        }
+        const serialNumber = cleanCode(next.serialNumber);
+        if (serialNumber && serialNumber !== existing.serialNumber) {
+          const clash = await tx.stockBatch.findFirst({ where: { tenantId: user.tenantId, serialNumber, NOT: { id: existing.batchId } } });
+          if (clash) throw new ConflictException(`Serial ${serialNumber} is already on a batch`);
+        }
+        await tx.stockBatch.update({
+          where: { id: existing.batchId },
+          data: {
+            medicineId,
+            quantity: existing.batch.quantity + delta,
+            costCents: next.costCents,
+            expiryDate: expiry,
+            batchNumber: next.batchNumber.trim(),
+            serialNumber,
+            supplierId,
+          },
+        });
+        await tx.purchaseLine.update({
+          where: { id: existing.id },
+          data: {
+            medicineId,
+            quantity: next.quantity,
+            costCents: next.costCents,
+            expiryDate: expiry,
+            batchNumber: next.batchNumber.trim(),
+            serialNumber,
+          },
+        });
+        await tx.stockMovement.updateMany({
+          where: { tenantId: user.tenantId, batchId: existing.batchId, kind: "purchase" },
+          data: { medicineId, quantity: next.quantity, note: reference },
+        });
+      }
+      return tx.purchase.findUnique({
+        where: { id: purchase.id },
+        include: { supplier: { select: { id: true, name: true } }, lines: { include: { medicine: true } } },
+      });
+    });
+    await this.wrote(user, "correction", `Corrected invoice ${reference}.`);
+    return saved;
   }
 
   async movements(user: StaffPrincipal, kind?: string) {
@@ -326,12 +472,18 @@ export class PharmacyService {
   async adjust(user: StaffPrincipal, body: AdjustmentDto) {
     assertFeature(user, "inventory");
     assertRole(user, ["owner", "pharmacist"]);
-    if (body.quantityDelta === 0) throw new BadRequestException("Enter a quantity to add or remove");
     const batch = await this.ownedBatch(user.tenantId, body.batchId, user.branchId);
     const next = batch.quantity + body.quantityDelta;
     if (next < 0) throw new BadRequestException("That would take the batch below zero");
-    return this.prisma.$transaction(async (tx) => {
-      await tx.stockBatch.update({ where: { id: batch.id }, data: { quantity: next } });
+    const nextExpiry = body.expiryDate ? parseExpiry(body.expiryDate) : null;
+    if (nextExpiry && Number.isNaN(nextExpiry.getTime())) throw new BadRequestException("Enter a real expiry date");
+    const expiryChanged = Boolean(nextExpiry && !sameDay(batch.expiryDate, nextExpiry));
+    if (body.quantityDelta === 0 && !expiryChanged) throw new BadRequestException("That matches the shelf. Nothing to record.");
+    const saved = await this.prisma.$transaction(async (tx) => {
+      await tx.stockBatch.update({
+        where: { id: batch.id },
+        data: { quantity: next, ...(expiryChanged && nextExpiry ? { expiryDate: nextExpiry } : {}) },
+      });
       return tx.stockMovement.create({
         data: {
           tenantId: user.tenantId,
@@ -342,10 +494,14 @@ export class PharmacyService {
           quantity: body.quantityDelta,
           reason: body.reason,
           note: body.note?.trim(),
+          ...(expiryChanged && nextExpiry ? { expiryFrom: batch.expiryDate, expiryTo: nextExpiry } : {}),
         },
         include: { medicine: true, batch: true },
       });
     });
+    const change = body.quantityDelta === 0 ? "expiry updated" : body.quantityDelta > 0 ? `added ${body.quantityDelta}` : `removed ${-body.quantityDelta}`;
+    await this.wrote(user, "adjustment", `Adjusted ${saved.medicine.name} ${saved.batch.batchNumber}, ${change}${expiryChanged && body.quantityDelta !== 0 ? ", expiry updated" : ""}.`);
+    return saved;
   }
 
   async waste(user: StaffPrincipal, body: WasteDto) {
@@ -353,7 +509,7 @@ export class PharmacyService {
     assertRole(user, ["owner", "pharmacist"]);
     const batch = await this.ownedBatch(user.tenantId, body.batchId, user.branchId);
     if (body.quantity > batch.quantity) throw new BadRequestException("Waste quantity is higher than the batch");
-    return this.prisma.$transaction(async (tx) => {
+    const saved = await this.prisma.$transaction(async (tx) => {
       await tx.stockBatch.update({ where: { id: batch.id }, data: { quantity: batch.quantity - body.quantity } });
       return tx.stockMovement.create({
         data: {
@@ -369,6 +525,51 @@ export class PharmacyService {
         include: { medicine: true, batch: true },
       });
     });
+    await this.wrote(user, "waste", `Wrote off ${body.quantity} of ${saved.medicine.name} ${saved.batch.batchNumber}, ${body.reason}.`);
+    return saved;
+  }
+
+  async updateWaste(user: StaffPrincipal, id: string, body: UpdateWasteDto) {
+    assertFeature(user, "inventory");
+    assertRole(user, ["owner", "manager"]);
+    const movement = await this.prisma.stockMovement.findFirst({
+      where: { id, tenantId: user.tenantId, kind: "waste", ...this.place(user) },
+      include: { batch: true },
+    });
+    if (!movement) throw new NotFoundException("Waste record not found");
+    const written = -movement.quantity;
+    const targetId = body.batchId || movement.batchId;
+    const target = targetId === movement.batchId ? movement.batch : await this.ownedBatch(user.tenantId, targetId, user.branchId);
+    if (targetId === movement.batchId) {
+      const next = movement.batch.quantity - (body.quantity - written);
+      if (next < 0) throw new BadRequestException("That is more than this pack has on the shelf.");
+    } else if (body.quantity > target.quantity) {
+      throw new BadRequestException("That is more than the new pack has on the shelf.");
+    }
+    const saved = await this.prisma.$transaction(async (tx) => {
+      if (targetId === movement.batchId) {
+        await tx.stockBatch.update({
+          where: { id: movement.batchId },
+          data: { quantity: movement.batch.quantity - (body.quantity - written) },
+        });
+      } else {
+        await tx.stockBatch.update({ where: { id: movement.batchId }, data: { quantity: movement.batch.quantity + written } });
+        await tx.stockBatch.update({ where: { id: target.id }, data: { quantity: target.quantity - body.quantity } });
+      }
+      return tx.stockMovement.update({
+        where: { id: movement.id },
+        data: {
+          batchId: target.id,
+          medicineId: target.medicineId,
+          quantity: -body.quantity,
+          reason: body.reason,
+          note: body.note?.trim() || null,
+        },
+        include: { medicine: true, batch: true },
+      });
+    });
+    await this.wrote(user, "correction", `Corrected a write-off of ${saved.medicine.name} to ${body.quantity}, ${body.reason}.`);
+    return saved;
   }
 
   async patients(user: StaffPrincipal) {
@@ -1324,12 +1525,111 @@ export class PharmacyService {
     };
   }
 
-  async reports(user: StaffPrincipal, range: "today" | "month") {
+  async employeeLog(user: StaffPrincipal, range?: string, fromText?: string, toText?: string, staffId?: string) {
+    assertRole(user, ["owner"]);
+    const window = reportWindow(range, fromText, toText);
+    const span = { gte: window.from, lt: window.to };
+    const tenantId = user.tenantId;
+    const person = staffId ? { staffId } : {};
+    const [people, logs, sales, events, payments, supplierPayments] = await Promise.all([
+      this.prisma.tenantUser.findMany({ where: { tenantId }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
+      this.prisma.staffLog.findMany({
+        where: { tenantId, createdAt: span, ...person },
+        include: { staff: { select: { name: true, role: true } }, branch: { select: { name: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 400,
+      }),
+      this.prisma.sale.findMany({
+        where: { tenantId, createdAt: span, ...person },
+        select: {
+          createdAt: true,
+          receiptNo: true,
+          totalCents: true,
+          paymentMethod: true,
+          staffId: true,
+          staff: { select: { name: true, role: true } },
+          branch: { select: { name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 400,
+      }),
+      this.prisma.saleEvent.findMany({
+        where: { tenantId, createdAt: span, kind: { in: ["refund", "replace"] }, ...person },
+        select: {
+          createdAt: true,
+          kind: true,
+          amountCents: true,
+          staffId: true,
+          staff: { select: { name: true, role: true } },
+          branch: { select: { name: true } },
+          sale: { select: { receiptNo: true } },
+          lines: { select: { quantity: true, direction: true, medicine: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 400,
+      }),
+      this.prisma.accountPayment.findMany({
+        where: { tenantId, createdAt: span, ...person },
+        select: {
+          createdAt: true,
+          amountCents: true,
+          receiptNo: true,
+          staffId: true,
+          staff: { select: { name: true, role: true } },
+          branch: { select: { name: true } },
+          patient: { select: { name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 400,
+      }),
+      this.prisma.supplierPayment.findMany({
+        where: { tenantId, createdAt: span, ...person },
+        select: {
+          createdAt: true,
+          amountCents: true,
+          receiptNo: true,
+          staffId: true,
+          staff: { select: { name: true, role: true } },
+          branch: { select: { name: true } },
+          supplier: { select: { name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 400,
+      }),
+    ]);
+    if (staffId && !people.some((row) => row.id === staffId)) throw new BadRequestException("That employee is not on this pharmacy.");
+    const entries = [
+      ...logs.map((row) => entry(row.createdAt, row.action, row.summary, row.staffId, row.staff, row.branch?.name)),
+      ...sales.map((row) => entry(row.createdAt, "sale", `Sold ${row.receiptNo} for ${dollars(row.totalCents)}, ${tenderLabel(row.paymentMethod)}.`, row.staffId, row.staff, row.branch?.name)),
+      ...events.map((row) => {
+        const names = row.lines.filter((line) => line.direction === "return").map((line) => `${line.medicine.name} × ${line.quantity}`).join(", ");
+        const detail = names ? `, ${names}` : "";
+        const summary = row.kind === "refund"
+          ? `Refunded ${dollars(Math.abs(row.amountCents))} on ${row.sale.receiptNo}${detail}.`
+          : `Replaced a line on ${row.sale.receiptNo}${detail}.`;
+        return entry(row.createdAt, row.kind, summary, row.staffId, row.staff, row.branch?.name);
+      }),
+      ...payments.map((row) => entry(row.createdAt, "payment", `Took ${dollars(row.amountCents)} from ${row.patient.name}${row.receiptNo ? ` (${row.receiptNo})` : ""}.`, row.staffId, row.staff, row.branch?.name)),
+      ...supplierPayments.map((row) => entry(row.createdAt, "payment", `Paid ${row.supplier.name} ${dollars(row.amountCents)}${row.receiptNo ? ` (${row.receiptNo})` : ""}.`, row.staffId, row.staff, row.branch?.name)),
+    ].sort((a, b) => b.at.localeCompare(a.at));
+    return {
+      range: window.range,
+      from: window.from,
+      to: window.to,
+      staff: people,
+      signIns: entries.filter((row) => row.action === "login").length,
+      signOuts: entries.filter((row) => row.action === "logout").length,
+      sales: entries.filter((row) => row.action === "sale").length,
+      refunds: entries.filter((row) => row.action === "refund").length,
+      entries: entries.slice(0, 400),
+    };
+  }
+
+  async reports(user: StaffPrincipal, range?: string, fromText?: string, toText?: string) {
     assertFeature(user, "reports");
     assertPermission(user, "reports");
-    const from = range === "month" ? startOfMonth() : startOfToday();
-    const to = startOfTomorrow();
-    const span = { gte: from, lt: to };
+    const window = reportWindow(range, fromText, toText);
+    const span = { gte: window.from, lt: window.to };
     const tenantId = user.tenantId;
     const [people, sales, events, payments, movements, expiredBatches, aged] = await Promise.all([
       this.prisma.tenantUser.findMany({ where: { tenantId }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
@@ -1392,7 +1692,17 @@ export class PharmacyService {
       days.set(key, row);
       return row;
     };
-    for (let cursor = new Date(from); cursor < to; cursor.setDate(cursor.getDate() + 1)) touchDay(cursor);
+    const spanDays = Math.round((window.to.getTime() - window.from.getTime()) / 86400000);
+    if (spanDays <= 62) {
+      for (let cursor = new Date(window.from); cursor < window.to; cursor.setDate(cursor.getDate() + 1)) touchDay(cursor);
+    }
+    const tenders = new Map<string, { method: string; receipts: number; cents: number }>();
+    const touchTender = (method: string, cents: number, receipt: boolean) => {
+      const row = tenders.get(method) || { method, receipts: 0, cents: 0 };
+      row.cents += cents;
+      if (receipt) row.receipts += 1;
+      tenders.set(method, row);
+    };
 
     let soldCents = 0;
     let collectedCents = 0;
@@ -1413,6 +1723,7 @@ export class PharmacyService {
       person.receipts += 1;
       person.soldCents += sale.totalCents;
       person.collectedCents += collected;
+      touchTender(sale.paymentMethod, sale.totalCents, true);
       for (const item of sale.items) {
         const product = touchProduct(item.medicineId, item.medicine.name);
         product.quantity += item.quantity;
@@ -1430,6 +1741,7 @@ export class PharmacyService {
       const person = touchStaff(event.staffId, event.staff?.name, event.staff?.role);
       person.soldCents += event.amountCents;
       person.collectedCents += collected;
+      touchTender(event.sale.paymentMethod, event.amountCents, false);
       for (const line of event.lines) {
         const product = touchProduct(line.medicineId, line.medicine.name);
         product.quantity += line.direction === "return" ? -line.quantity : line.quantity;
@@ -1462,14 +1774,24 @@ export class PharmacyService {
       .filter((row) => row.id !== "unassigned" || row.receipts || row.soldCents || row.collectedCents)
       .sort((a, b) => b.soldCents - a.soldCents || a.name.localeCompare(b.name));
     const byDay = [...days.values()]
-      .filter((row) => row.receipts || row.soldCents || row.collectedCents || row.costCents)
+      .filter((row) => spanDays <= 62 || row.receipts || row.soldCents || row.collectedCents || row.costCents)
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((row) => ({ ...row, profitCents: row.soldCents - row.costCents }));
     const profitCents = soldCents - costCents;
+    const byMethod = [...tenders.values()].filter((row) => row.cents !== 0 || row.receipts > 0).sort((a, b) => b.cents - a.cents);
+    const bestDay = [...byDay].sort((a, b) => b.soldCents - a.soldCents)[0];
+    const topProduct = byProduct[0];
+    const highlights = [
+      `${sales.length} ${sales.length === 1 ? "receipt" : "receipts"}. Sold ${dollars(soldCents)} and collected ${dollars(collectedCents)}.`,
+      `Profit is ${dollars(profitCents)}${soldCents > 0 ? `, ${Math.round((profitCents / soldCents) * 100)}% of what sold` : ""}.`,
+      bestDay && bestDay.soldCents ? `The strongest day was ${writtenDay(bestDay.date)} at ${dollars(bestDay.soldCents)}.` : "",
+      topProduct ? `${topProduct.name} led the shelf with ${topProduct.quantity} ${Math.abs(topProduct.quantity) === 1 ? "pack" : "packs"}.` : "",
+      expiredWasteCents + otherWasteCents ? `Written off ${dollars(expiredWasteCents + otherWasteCents)}.` : "",
+    ].filter(Boolean);
     return {
-      range,
-      from,
-      to,
+      range: window.range,
+      from: window.from,
+      to: window.to,
       soldCents,
       collectedCents,
       costCents,
@@ -1484,6 +1806,8 @@ export class PharmacyService {
       byDay,
       byProduct,
       byStaff,
+      byMethod,
+      highlights,
     };
   }
 
@@ -1504,6 +1828,12 @@ export class PharmacyService {
     }
   }
 
+  private async wrote(user: StaffPrincipal, action: string, summary: string) {
+    await this.prisma.staffLog.create({
+      data: { tenantId: user.tenantId, staffId: user.sub, branchId: user.branchId, action, summary },
+    }).catch(() => undefined);
+  }
+
   private place(user: StaffPrincipal) {
     if (!user.features.includes("branches") || !user.branchId) return {};
     return { branchId: user.branchId };
@@ -1519,6 +1849,27 @@ export class PharmacyService {
     const medicine = await this.prisma.medicine.findFirst({ where: { id, tenantId } });
     if (!medicine) throw new NotFoundException("Medicine not found");
     return medicine;
+  }
+
+  private async packUntouched(tx: Prisma.TransactionClient, line: { batchId: string; quantity: number; batch: { quantity: number } }) {
+    const [sold, otherMoves] = await Promise.all([
+      tx.saleLineBatch.count({ where: { batchId: line.batchId } }),
+      tx.stockMovement.count({ where: { batchId: line.batchId, kind: { not: "purchase" } } }),
+    ]);
+    return sold === 0 && otherMoves === 0 && line.batch.quantity === line.quantity;
+  }
+
+  private async removePurchaseLine(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    line: { id: string; batchId: string; batchNumber: string; quantity: number; batch: { quantity: number } },
+  ) {
+    if (!(await this.packUntouched(tx, line))) {
+      throw new BadRequestException(`${line.batchNumber} has already moved, so that pack stays on the delivery.`);
+    }
+    await tx.stockMovement.deleteMany({ where: { tenantId, batchId: line.batchId, kind: "purchase" } });
+    await tx.purchaseLine.delete({ where: { id: line.id } });
+    await tx.stockBatch.delete({ where: { id: line.batchId } });
   }
 
   private async ownedBatch(tenantId: string, id: string, branchId?: string | null) {
@@ -1581,6 +1932,10 @@ function parseExpiry(value: string) {
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (dateOnly) return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]), 23, 59, 59);
   return new Date(value);
+}
+
+function sameDay(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
 }
 
 function cleanCode(value?: string | null) {
@@ -1845,6 +2200,59 @@ async function returnStock(
 async function nextReceipt(tx: Prisma.TransactionClient, tenantId: string) {
   const count = await tx.sale.count({ where: { tenantId } });
   return `R-${String(count + 1).padStart(5, "0")}`;
+}
+
+function reportWindow(range: string | undefined, fromText?: string, toText?: string) {
+  if (range === "custom") {
+    if (!fromText || !toText) throw new BadRequestException("Choose a start date and an end date.");
+    const from = parseDay(fromText);
+    const end = parseDay(toText);
+    if (from.getTime() > end.getTime()) throw new BadRequestException("The start date has to come first.");
+    const to = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+    if (to.getTime() - from.getTime() > 366 * 86400000) throw new BadRequestException("Choose a range of a year or less.");
+    return { range: "custom" as const, from, to };
+  }
+  return {
+    range: range === "month" ? ("month" as const) : ("today" as const),
+    from: range === "month" ? startOfMonth() : startOfToday(),
+    to: startOfTomorrow(),
+  };
+}
+
+function parseDay(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) throw new BadRequestException("Enter a real date.");
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(date.getTime()) || date.getMonth() !== Number(match[2]) - 1) throw new BadRequestException("Enter a real date.");
+  return date;
+}
+
+function entry(
+  at: Date,
+  action: string,
+  summary: string,
+  staffId: string | null,
+  staff: { name: string; role: string } | null,
+  branch: string | null | undefined,
+) {
+  return { at: at.toISOString(), action, summary, staffId, name: staff?.name || "Someone", role: staff?.role || "", branch: branch || null };
+}
+
+function tenderLabel(method: string) {
+  if (method === "cash_ll") return "cash LL";
+  if (method === "card") return "card";
+  if (method === "credit") return "on account";
+  return "cash USD";
+}
+
+function dollars(cents: number) {
+  const sign = cents < 0 ? "-" : "";
+  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+}
+
+function writtenDay(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(year, (month || 1) - 1, day || 1));
 }
 
 function startOfToday() {

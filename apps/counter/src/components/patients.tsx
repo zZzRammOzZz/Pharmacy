@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { allowed, api, lira, liraOf, money, paymentLabel, Session, when } from "@/lib/api";
 import { ClientProfile, Medicine, Patient, Sale } from "@/lib/types";
 import { ReceiptSheet, saleBalance, saleMarks } from "./receipt";
-import { Field, Notice, Panel, PrimaryButton, control, quietSubmit } from "./ui";
+import { Dialog, Field, Notice, Panel, PrimaryButton, control, newButton, quietSubmit } from "./ui";
 
 const sexes = [
   ["", "Not recorded"],
@@ -19,6 +19,7 @@ export function Patients({ session }: { session: Session }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [profile, setProfile] = useState<ClientProfile | null>(null);
   const [editing, setEditing] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [receipt, setReceipt] = useState<Sale | null>(null);
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [payMethod, setPayMethod] = useState("cash_usd");
@@ -80,6 +81,7 @@ export function Patients({ session }: { session: Session }) {
       }),
     });
     formEl.reset();
+    setCreating(false);
     await loadList();
     await open(created.id);
   }
@@ -143,7 +145,10 @@ export function Patients({ session }: { session: Session }) {
     <div className="grid items-start gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
       <div>
         <Notice message={error} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, phone, or ID" className={`${control} mb-3`} />
+        <div className="mb-3 flex gap-2">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, phone, or ID" className={control} />
+          <button type="button" className={newButton} onClick={() => { setCreating(true); setError(""); }}>New</button>
+        </div>
         <div className="rounded-sm border border-line bg-surface">
           {visible.length === 0 ? <p className="px-4 py-8 text-sm text-muted">No clients match.</p> : null}
           {visible.map((patient) => (
@@ -318,23 +323,26 @@ export function Patients({ session }: { session: Session }) {
             ) : null}
           </div>
         ) : null}
-        <Panel title="New client">
-          <form onSubmit={quietSubmit(create, setError)} className="grid gap-3 p-4 sm:grid-cols-2">
-            <Field label="Full name"><input name="name" required className={control} /></Field>
-            <Field label="Phone"><input name="phone" className={control} /></Field>
-            <Field label="Sex">
-              <select name="sex" defaultValue="" className={control}>
-                {sexes.map(([id, label]) => <option key={id || "none"} value={id}>{label}</option>)}
-              </select>
-            </Field>
-            <Field label="Date of birth"><input name="dateOfBirth" type="date" className={control} /></Field>
-            <Field label="ID number"><input name="nationalId" className={control} /></Field>
-            <Field label="Address"><input name="address" className={control} /></Field>
-            <Field label="Allergies"><input name="allergies" className={control} placeholder="None recorded" /></Field>
-            <Field label="Notes"><input name="notes" className={control} /></Field>
-            <div className="sm:col-span-2"><PrimaryButton>Save client</PrimaryButton></div>
-          </form>
-        </Panel>
+        {creating ? (
+          <Dialog title="New client" onClose={() => setCreating(false)}>
+            <form onSubmit={quietSubmit(create, setError)} className="grid gap-3 p-4 sm:grid-cols-2">
+              <div className="sm:col-span-2"><Notice message={error} /></div>
+              <Field label="Full name"><input name="name" required className={control} /></Field>
+              <Field label="Phone"><input name="phone" className={control} /></Field>
+              <Field label="Sex">
+                <select name="sex" defaultValue="" className={control}>
+                  {sexes.map(([id, label]) => <option key={id || "none"} value={id}>{label}</option>)}
+                </select>
+              </Field>
+              <Field label="Date of birth"><input name="dateOfBirth" type="date" className={control} /></Field>
+              <Field label="ID number"><input name="nationalId" className={control} /></Field>
+              <Field label="Address"><input name="address" className={control} /></Field>
+              <Field label="Allergies"><input name="allergies" className={control} placeholder="None recorded" /></Field>
+              <Field label="Notes"><input name="notes" className={control} /></Field>
+              <div className="sm:col-span-2"><PrimaryButton>Save client</PrimaryButton></div>
+            </form>
+          </Dialog>
+        ) : null}
       </div>
     </div>
   );

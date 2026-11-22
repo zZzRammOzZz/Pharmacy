@@ -5,6 +5,9 @@ import {
   CreatePrescriptionDto,
   AdjustmentDto,
   CreatePurchaseDto,
+  UpdatePurchaseDto,
+  UpdateWasteDto,
+  UpdateMedicineDto,
   AccountPaymentDto,
   CreateSaleDto,
   RefundAllDto,
@@ -34,6 +37,12 @@ export class PharmacyController {
     return this.pharmacy.login(body);
   }
 
+  @Post("auth/logout")
+  @UseGuards(PharmacyGuard)
+  logout(@Req() request: { user: StaffPrincipal }) {
+    return this.pharmacy.logout(request.user);
+  }
+
   @Get("bootstrap")
   @UseGuards(PharmacyGuard)
   bootstrap(@Req() request: { user: StaffPrincipal }) {
@@ -50,6 +59,12 @@ export class PharmacyController {
   @UseGuards(PharmacyGuard)
   createMedicine(@Req() request: { user: StaffPrincipal }, @Body() body: CreateMedicineDto) {
     return this.pharmacy.createMedicine(request.user, body);
+  }
+
+  @Patch("medicines/:id")
+  @UseGuards(PharmacyGuard)
+  updateMedicine(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: UpdateMedicineDto) {
+    return this.pharmacy.updateMedicine(request.user, id, body);
   }
 
   @Post("stock")
@@ -76,6 +91,12 @@ export class PharmacyController {
     return this.pharmacy.createPurchase(request.user, body);
   }
 
+  @Patch("purchases/:id")
+  @UseGuards(PharmacyGuard)
+  updatePurchase(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: UpdatePurchaseDto) {
+    return this.pharmacy.updatePurchase(request.user, id, body);
+  }
+
   @Get("movements")
   @UseGuards(PharmacyGuard)
   movements(@Req() request: { user: StaffPrincipal }, @Query("kind") kind?: string) {
@@ -92,6 +113,12 @@ export class PharmacyController {
   @UseGuards(PharmacyGuard)
   waste(@Req() request: { user: StaffPrincipal }, @Body() body: WasteDto) {
     return this.pharmacy.waste(request.user, body);
+  }
+
+  @Patch("waste/:id")
+  @UseGuards(PharmacyGuard)
+  updateWaste(@Req() request: { user: StaffPrincipal }, @Param("id") id: string, @Body() body: UpdateWasteDto) {
+    return this.pharmacy.updateWaste(request.user, id, body);
   }
 
   @Get("patients")
@@ -280,7 +307,24 @@ export class PharmacyController {
 
   @Get("reports")
   @UseGuards(PharmacyGuard)
-  reports(@Req() request: { user: StaffPrincipal }, @Query("range") range?: string) {
-    return this.pharmacy.reports(request.user, range === "month" ? "month" : "today");
+  reports(
+    @Req() request: { user: StaffPrincipal },
+    @Query("range") range?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    return this.pharmacy.reports(request.user, range, from, to);
+  }
+
+  @Get("employee-log")
+  @UseGuards(PharmacyGuard)
+  employeeLog(
+    @Req() request: { user: StaffPrincipal },
+    @Query("range") range?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("staffId") staffId?: string,
+  ) {
+    return this.pharmacy.employeeLog(request.user, range, from, to, staffId);
   }
 }
