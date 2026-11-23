@@ -1,15 +1,20 @@
 import { Type } from "class-transformer";
+import { CAPABILITY_IDS, ROLE_ID } from "./access";
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEmail,
   IsIn,
   IsInt,
   IsISO8601,
   IsOptional,
   IsString,
+  Matches,
+  MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from "class-validator";
 
@@ -255,11 +260,52 @@ export class CreateSaleDto extends TakePaymentDto {
   items!: LineDto[];
 }
 
-export class SetRateDto {
+export class BranchRateDto {
+  @IsString()
+  branchId!: string;
+
   @Type(() => Number)
   @IsInt()
   @Min(1)
   llPerUsd!: number;
+}
+
+export class UpdateSettingsDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  name?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== "")
+  @IsEmail({ require_tld: false })
+  email?: string | null;
+
+  @IsOptional()
+  @IsString()
+  phone?: string | null;
+
+  @IsOptional()
+  @IsString()
+  address?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  llPerUsd?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BranchRateDto)
+  rates?: BranchRateDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoleGrantDto)
+  roles?: RoleGrantDto[];
 }
 
 export class AccountPaymentDto {
@@ -542,7 +588,24 @@ export class CreateBranchDto {
   name!: string;
 }
 
-export const STAFF_PERMISSIONS = ["refund", "mainReading", "reports"] as const;
+export class RoleGrantDto {
+  @IsString()
+  @Matches(ROLE_ID)
+  role!: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(40)
+  label?: string;
+
+  @IsArray()
+  @IsIn(CAPABILITY_IDS, { each: true })
+  access!: string[];
+
+  @IsBoolean()
+  enabled!: boolean;
+}
 
 export class CreateStaffDto {
   @IsString()
@@ -556,21 +619,25 @@ export class CreateStaffDto {
   @MinLength(8)
   password!: string;
 
-  @IsIn(["pharmacist", "cashier", "manager"])
-  role!: "pharmacist" | "cashier" | "manager";
+  @IsString()
+  @Matches(ROLE_ID)
+  role!: string;
 
+  @IsOptional()
   @IsArray()
-  @IsIn(STAFF_PERMISSIONS, { each: true })
-  permissions!: string[];
+  @IsString({ each: true })
+  branchIds?: string[];
 }
 
 export class UpdateStaffDto {
-  @IsIn(["pharmacist", "cashier", "manager"])
-  role!: "pharmacist" | "cashier" | "manager";
+  @IsString()
+  @Matches(ROLE_ID)
+  role!: string;
 
+  @IsOptional()
   @IsArray()
-  @IsIn(STAFF_PERMISSIONS, { each: true })
-  permissions!: string[];
+  @IsString({ each: true })
+  branchIds?: string[];
 
   @IsOptional()
   @IsString()

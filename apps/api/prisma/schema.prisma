@@ -24,6 +24,7 @@ model Tenant {
   address       String?
   status        String         @default("active")
   llPerUsd      Int            @default(0)
+  roleAccess    String         @default("")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   licenses      License[]
@@ -76,8 +77,18 @@ model TenantUser {
   staffLogs    StaffLog[]
   branchId     String?
   branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  staffBranches StaffBranch[]
 
   @@unique([tenantId, email])
+}
+
+model StaffBranch {
+  staffId  String
+  branchId String
+  staff    TenantUser @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  branch   Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, branchId])
 }
 
 model Branch {
@@ -88,6 +99,7 @@ model Branch {
   llPerUsd    Int               @default(0)
   createdAt   DateTime          @default(now())
   staff       TenantUser[]
+  staffBranches StaffBranch[]
   batches     StockBatch[]
   movements   StockMovement[]
   purchases   Purchase[]

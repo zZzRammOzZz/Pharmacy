@@ -149,7 +149,7 @@ export function Today({ session, onSection }: { session: Session; onSection: (se
               {data.lowStock.slice(0, 4).map((medicine) => (
                 <div key={medicine.id} className="flex items-center justify-between text-sm">
                   <span className="font-medium">{medicine.name}</span>
-                  <span className="text-[#ffb4ab]">{medicine.onHand} left</span>
+                  <span className="text-[#ffb4ab]">{medicine.onHand > medicine.inDate && medicine.inDate < 1 ? "Expired" : `${medicine.inDate} left`}</span>
                 </div>
               ))}
               {data.expired.slice(0, 3).map((batch) => (

@@ -191,7 +191,9 @@ export type Bootstrap = {
 export type StaffList = {
   seats: number;
   used: number;
-  staff: { id: string; name: string; email: string; role: string; permissions: string[]; branch?: { id: string; name: string } | null; createdAt: string }[];
+  roles: { id: string; label: string; enabled: boolean }[];
+  places: { id: string; name: string }[];
+  staff: { id: string; name: string; email: string; role: string; permissions: string[]; branch?: { id: string; name: string } | null; branches: { id: string; name: string }[]; createdAt: string }[];
 };
 
 export type ReadingRow = {
@@ -271,4 +273,11 @@ export type EmployeeLogReport = {
   entries: { at: string; action: string; summary: string; staffId: string | null; name: string; role: string; branch: string | null }[];
 };
 
-export type Section = "today" | "register" | "stock" | "patients" | "aged" | "prescriptions" | "suppliers" | "wholesalers" | "orders" | "reports" | "employeeLog" | "staff";
+export type PharmacySettings = {
+  pharmacy: { name: string; code: string; email: string | null; phone: string | null; address: string | null; llPerUsd: number };
+  branches: { id: string; name: string; llPerUsd: number }[];
+  capabilities: { id: string; label: string }[];
+  roles: { id: string; label: string; access: string[]; enabled: boolean; custom: boolean }[];
+};
+
+export type Section = "today" | "register" | "stock" | "patients" | "aged" | "prescriptions" | "suppliers" | "wholesalers" | "orders" | "reports" | "employeeLog" | "staff" | "settings";

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { api, Session, when } from "@/lib/api";
+import { allowed, api, Session, when } from "@/lib/api";
 import { Medicine, Patient, Prescription } from "@/lib/types";
 import { PaymentChoice } from "./payment";
 import { Dialog, Field, Notice, Panel, PrimaryButton, control, newButton, quietSubmit } from "./ui";
@@ -21,7 +21,7 @@ export function Prescriptions({ session }: { session: Session }) {
   const [mode, setMode] = useState<Mode>("preview");
   const [method, setMethod] = useState("cash_usd");
   const [rate, setRate] = useState("");
-  const canWrite = session.user.role === "owner" || session.user.role === "pharmacist";
+  const canWrite = allowed(session, "prescriptions");
   const selected = rows.find((row) => row.id === selectedId) || null;
 
   async function load() {
@@ -69,12 +69,19 @@ export function Prescriptions({ session }: { session: Session }) {
   }
 
   async function dispense(id: string) {
+    const script = rows.find((row) => row.id === id);
+    const blocked = script?.items
+      .map((item) => medicines.find((medicine) => medicine.id === item.medicine.id))
+      .find((medicine) => medicine && medicine.onHand > medicine.inDate);
+    if (blocked) {
+      setError(blocked.inDate < 1 ? `${blocked.name} is expired. It cannot be sold.` : `${blocked.name} has expired packs on the shelf. Write them off before selling it.`);
+      return;
+    }
     if (method === "cash_ll" && (!Number.isInteger(Number(rate)) || Number(rate) < 1)) {
-      setError("Set how many lira equal one dollar.");
+      setError("Set the lira rate in Settings before taking lira.");
       return;
     }
     setError("");
-    if (method === "cash_ll") await api("/pharmacy/till", session, { method: "PATCH", body: JSON.stringify({ llPerUsd: Number(rate) }) });
     await api(`/pharmacy/prescriptions/${id}/dispense`, session, {
       method: "POST",
       body: JSON.stringify({ paymentMethod: method }),
@@ -183,7 +190,6 @@ export function Prescriptions({ session }: { session: Session }) {
                     method={method}
                     onMethod={setMethod}
                     rate={rate}
-                    onRate={setRate}
                     totalCents={selected.items.reduce((sum, item) => sum + item.quantity * (medicines.find((row) => row.id === item.medicine.id)?.unitPriceCents || 0), 0)}
                     allowCredit
                   />

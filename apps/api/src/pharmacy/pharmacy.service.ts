@@ -28,7 +28,7 @@ import {
   RefundAllDto,
   RefundSaleDto,
   ReplaceSaleDto,
-  SetRateDto,
+  UpdateSettingsDto,
   TakePaymentDto,
   CreateStaffDto,
   UpdateStaffDto,
@@ -37,9 +37,8 @@ import {
   PharmacyLoginDto,
   ReceiveStockDto,
 } from "./dto";
-import { assertFeature, assertPermission, assertRole, loadActiveLicense, staffPermissions, StaffPrincipal } from "./pharmacy.guard";
-
-const TILL_ROLES = ["owner", "manager", "pharmacist", "cashier"];
+import { accessFor, allows, CAPABILITIES, ROLE_DEFAULTS, roleCatalog, RoleRecord, STAFF_ROLES, storeRoles } from "./access";
+import { assertAny, assertFeature, assertPermission, assertRole, loadActiveLicense, StaffPrincipal } from "./pharmacy.guard";
 
 type OrderLine = {
   medicineId: string;
@@ -93,7 +92,7 @@ export class PharmacyService {
         email: user.email,
         role: user.role,
         tenant: { id: tenant.id, name: tenant.name, code: tenant.code },
-        permissions: staffPermissions(user.role, user.permissions),
+        permissions: accessFor(user.role, tenant.roleAccess),
       },
       license: {
         keyId: license.keyId,
@@ -102,9 +101,7 @@ export class PharmacyService {
         features: license.features,
         expiresAt: license.expiresAt,
       },
-      branches: license.features.includes("branches")
-        ? await this.prisma.branch.findMany({ where: { tenantId: tenant.id }, select: { id: true, name: true }, orderBy: { createdAt: "asc" } })
-        : [],
+      branches: license.features.includes("branches") ? await this.visibleBranches(tenant.id, user) : [],
     };
   }
 
@@ -139,7 +136,7 @@ export class PharmacyService {
     ]);
     return {
       medicines,
-      lowStock: medicines.filter((medicine) => medicine.onHand <= medicine.reorderLevel),
+      lowStock: medicines.filter((medicine) => medicine.inDate <= medicine.reorderLevel),
       expired: medicines.flatMap((medicine) =>
         medicine.batches
           .filter((batch) => batch.quantity > 0 && batch.expiryDate.getTime() < Date.now())
@@ -160,12 +157,10 @@ export class PharmacyService {
       patientCount,
       pendingPrescriptions,
       llPerUsd: rate?.llPerUsd || 0,
-      agedCount: (await this.aged(user)).length,
-      supplierAgedCount: user.features.includes("suppliers") ? (await this.supplierAged(user)).length : 0,
-      orderCount: user.features.includes("suppliers") ? (await this.orderList(user)).count : 0,
-      branches: user.features.includes("branches")
-        ? await this.prisma.branch.findMany({ where: { tenantId: user.tenantId }, select: { id: true, name: true }, orderBy: { createdAt: "asc" } })
-        : [],
+      agedCount: allows(user, "clientAged") ? (await this.aged(user)).length : 0,
+      supplierAgedCount: user.features.includes("suppliers") && allows(user, "wholesalers") ? (await this.supplierAged(user)).length : 0,
+      orderCount: user.features.includes("suppliers") && allows(user, "orders") ? (await this.orderList(user)).count : 0,
+      branches: user.features.includes("branches") ? await this.visibleBranches(user.tenantId, { id: user.sub, role: user.role, branchId: user.branchId }) : [],
       me: { role: user.role, permissions: user.permissions, features: user.features, plan: user.plan, seats: user.seats },
       salesToday: {
         count: receiptsToday,
@@ -186,7 +181,7 @@ export class PharmacyService {
 
   async createMedicine(user: StaffPrincipal, body: CreateMedicineDto) {
     assertFeature(user, "inventory");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "stock");
     const sku = body.sku.trim().toUpperCase();
     const existing = await this.prisma.medicine.findUnique({
       where: { tenantId_sku: { tenantId: user.tenantId, sku } },
@@ -215,7 +210,7 @@ export class PharmacyService {
 
   async updateMedicine(user: StaffPrincipal, id: string, body: UpdateMedicineDto) {
     assertFeature(user, "inventory");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "stock");
     const medicine = await this.ownedMedicine(user.tenantId, id);
     const data: {
       name?: string;
@@ -252,7 +247,7 @@ export class PharmacyService {
 
   async receiveStock(user: StaffPrincipal, body: ReceiveStockDto) {
     assertFeature(user, "inventory");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "purchases");
     const medicine = await this.ownedMedicine(user.tenantId, body.medicineId);
     const branchId = this.requireBranch(user);
     return this.prisma.$transaction(async (tx) => {
@@ -286,6 +281,7 @@ export class PharmacyService {
 
   async purchases(user: StaffPrincipal) {
     assertFeature(user, "inventory");
+    assertAny(user, ["purchases", "stock", "corrections"]);
     return this.prisma.purchase.findMany({
       where: { tenantId: user.tenantId, ...this.place(user) },
       include: {
@@ -300,7 +296,7 @@ export class PharmacyService {
 
   async createPurchase(user: StaffPrincipal, body: CreatePurchaseDto) {
     assertFeature(user, "inventory");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "purchases");
     const branchId = this.requireBranch(user);
     const saved = await this.prisma.$transaction(async (tx) => {
       const purchase = await tx.purchase.create({
@@ -370,7 +366,7 @@ export class PharmacyService {
 
   async updatePurchase(user: StaffPrincipal, id: string, body: UpdatePurchaseDto) {
     assertFeature(user, "inventory");
-    assertRole(user, ["owner", "manager"]);
+    assertPermission(user, "corrections");
     const purchase = await this.prisma.purchase.findFirst({
       where: { id, tenantId: user.tenantId, ...this.place(user) },
       include: { lines: { include: { batch: true } }, payments: { select: { amountCents: true } } },
@@ -461,6 +457,7 @@ export class PharmacyService {
 
   async movements(user: StaffPrincipal, kind?: string) {
     assertFeature(user, "inventory");
+    assertAny(user, ["stock", "corrections"]);
     return this.prisma.stockMovement.findMany({
       where: { tenantId: user.tenantId, ...this.place(user), ...(kind ? { kind } : {}) },
       include: { medicine: true, batch: true },
@@ -471,7 +468,7 @@ export class PharmacyService {
 
   async adjust(user: StaffPrincipal, body: AdjustmentDto) {
     assertFeature(user, "inventory");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "stock");
     const batch = await this.ownedBatch(user.tenantId, body.batchId, user.branchId);
     const next = batch.quantity + body.quantityDelta;
     if (next < 0) throw new BadRequestException("That would take the batch below zero");
@@ -506,7 +503,7 @@ export class PharmacyService {
 
   async waste(user: StaffPrincipal, body: WasteDto) {
     assertFeature(user, "inventory");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "stock");
     const batch = await this.ownedBatch(user.tenantId, body.batchId, user.branchId);
     if (body.quantity > batch.quantity) throw new BadRequestException("Waste quantity is higher than the batch");
     const saved = await this.prisma.$transaction(async (tx) => {
@@ -531,7 +528,7 @@ export class PharmacyService {
 
   async updateWaste(user: StaffPrincipal, id: string, body: UpdateWasteDto) {
     assertFeature(user, "inventory");
-    assertRole(user, ["owner", "manager"]);
+    assertPermission(user, "corrections");
     const movement = await this.prisma.stockMovement.findFirst({
       where: { id, tenantId: user.tenantId, kind: "waste", ...this.place(user) },
       include: { batch: true },
@@ -574,6 +571,7 @@ export class PharmacyService {
 
   async patients(user: StaffPrincipal) {
     assertFeature(user, "patients");
+    assertAny(user, ["register", "clients", "clientAged", "prescriptions"]);
     return this.prisma.patient.findMany({
       where: { tenantId: user.tenantId },
       orderBy: { name: "asc" },
@@ -582,7 +580,7 @@ export class PharmacyService {
 
   async createPatient(user: StaffPrincipal, body: CreatePatientDto) {
     assertFeature(user, "patients");
-    assertRole(user, TILL_ROLES);
+    assertPermission(user, "clients");
     return this.prisma.patient.create({
       data: {
         tenantId: user.tenantId,
@@ -600,6 +598,7 @@ export class PharmacyService {
 
   async patientProfile(user: StaffPrincipal, id: string) {
     assertFeature(user, "patients");
+    assertAny(user, ["clients", "clientAged"]);
     const patient = await this.ownedPatient(user.tenantId, id);
     const [sales, ledger, payments, paymentSum, prescriptions] = await Promise.all([
       this.prisma.sale.findMany({
@@ -647,7 +646,7 @@ export class PharmacyService {
 
   async updatePatient(user: StaffPrincipal, id: string, body: UpdatePatientDto) {
     assertFeature(user, "patients");
-    assertRole(user, TILL_ROLES);
+    assertPermission(user, "clients");
     await this.ownedPatient(user.tenantId, id);
     return this.prisma.patient.update({
       where: { id },
@@ -666,6 +665,7 @@ export class PharmacyService {
 
   async prescriptions(user: StaffPrincipal) {
     assertFeature(user, "prescriptions");
+    assertPermission(user, "prescriptions");
     return this.prisma.prescription.findMany({
       where: { tenantId: user.tenantId },
       include: { patient: true, items: { include: { medicine: true } } },
@@ -675,7 +675,7 @@ export class PharmacyService {
 
   async createPrescription(user: StaffPrincipal, body: CreatePrescriptionDto) {
     assertFeature(user, "prescriptions");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "prescriptions");
     await this.ownedPatient(user.tenantId, body.patientId);
     for (const item of body.items) await this.ownedMedicine(user.tenantId, item.medicineId);
     return this.prisma.prescription.create({
@@ -698,7 +698,7 @@ export class PharmacyService {
 
   async updatePrescription(user: StaffPrincipal, id: string, body: CreatePrescriptionDto) {
     assertFeature(user, "prescriptions");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "prescriptions");
     const existing = await this.prisma.prescription.findFirst({ where: { id, tenantId: user.tenantId } });
     if (!existing) throw new NotFoundException("Prescription not found");
     if (existing.status !== "pending") throw new BadRequestException("A dispensed prescription cannot be changed");
@@ -727,7 +727,7 @@ export class PharmacyService {
 
   async dispense(user: StaffPrincipal, id: string, body: TakePaymentDto = {}) {
     assertFeature(user, "prescriptions");
-    assertRole(user, ["owner", "pharmacist"]);
+    assertPermission(user, "prescriptions");
     return this.prisma.$transaction(async (tx) => {
       const prescription = await tx.prescription.findFirst({
         where: { id, tenantId: user.tenantId },
@@ -737,7 +737,7 @@ export class PharmacyService {
       if (prescription.status !== "pending") throw new BadRequestException("Prescription is already closed");
       const saleItems = [];
       for (const item of prescription.items) {
-        const takes = await consumeStock(tx, user.tenantId, item.medicineId, item.quantity, "sale", undefined, this.requireBranch(user));
+        const takes = await consumeStock(tx, user.tenantId, item.medicineId, item.quantity, "sale", undefined, this.requireBranch(user), item.medicine.name);
         saleItems.push({
           medicineId: item.medicineId,
           quantity: item.quantity,
@@ -747,7 +747,7 @@ export class PharmacyService {
         });
       }
       const totalCents = saleItems.reduce((sum, item) => sum + item.lineCents, 0);
-      const tender = await paymentFields(tx, user.tenantId, body.paymentMethod || "cash_usd", totalCents, prescription.patientId);
+      const tender = await paymentFields(tx, user.tenantId, body.paymentMethod || "cash_usd", totalCents, prescription.patientId, this.requireBranch(user));
       const sale = await tx.sale.create({
         data: {
           tenantId: user.tenantId,
@@ -767,6 +767,7 @@ export class PharmacyService {
 
   async sales(user: StaffPrincipal) {
     assertFeature(user, "sales");
+    assertAny(user, ["register", "refund"]);
     return this.prisma.sale.findMany({
       where: { tenantId: user.tenantId, ...this.place(user) },
       include: saleDetail,
@@ -777,12 +778,13 @@ export class PharmacyService {
 
   async sale(user: StaffPrincipal, id: string) {
     assertFeature(user, "sales");
+    assertAny(user, ["register", "refund"]);
     return this.ownedSale(user.tenantId, id);
   }
 
   async createSale(user: StaffPrincipal, body: CreateSaleDto) {
     assertFeature(user, "sales");
-    assertRole(user, TILL_ROLES);
+    assertPermission(user, "register");
     if (body.patientId) await this.ownedPatient(user.tenantId, body.patientId);
     return this.prisma.$transaction(async (tx) => {
       const saleItems = [];
@@ -791,7 +793,7 @@ export class PharmacyService {
           where: { id: item.medicineId, tenantId: user.tenantId },
         });
         if (!medicine) throw new NotFoundException("Medicine not found");
-        const takes = await consumeStock(tx, user.tenantId, medicine.id, item.quantity, "sale", undefined, this.requireBranch(user));
+        const takes = await consumeStock(tx, user.tenantId, medicine.id, item.quantity, "sale", undefined, this.requireBranch(user), medicine.name);
         saleItems.push({
           medicineId: medicine.id,
           quantity: item.quantity,
@@ -801,7 +803,7 @@ export class PharmacyService {
         });
       }
       const totalCents = saleItems.reduce((sum, item) => sum + item.lineCents, 0);
-      const tender = await paymentFields(tx, user.tenantId, body.paymentMethod || "cash_usd", totalCents, body.patientId);
+      const tender = await paymentFields(tx, user.tenantId, body.paymentMethod || "cash_usd", totalCents, body.patientId, this.requireBranch(user));
       return tx.sale.create({
         data: {
           tenantId: user.tenantId,
@@ -828,20 +830,9 @@ export class PharmacyService {
     return { llPerUsd: tenant?.llPerUsd || 0 };
   }
 
-  async setTill(user: StaffPrincipal, body: SetRateDto) {
-    assertFeature(user, "sales");
-    assertRole(user, TILL_ROLES);
-    if (user.branchId) {
-      await this.prisma.branch.updateMany({ where: { id: user.branchId, tenantId: user.tenantId }, data: { llPerUsd: body.llPerUsd } });
-      return { llPerUsd: body.llPerUsd };
-    }
-    await this.prisma.tenant.update({ where: { id: user.tenantId }, data: { llPerUsd: body.llPerUsd } });
-    return { llPerUsd: body.llPerUsd };
-  }
-
   async receivePayment(user: StaffPrincipal, patientId: string, body: AccountPaymentDto) {
     assertFeature(user, "sales");
-    assertRole(user, TILL_ROLES);
+    assertAny(user, ["clients", "clientAged"]);
     const patient = await this.ownedPatient(user.tenantId, patientId);
     const closing = await this.prisma.$transaction(async (tx) => {
       const open = await openCredit(tx, user.tenantId, patientId, this.requireBranch(user));
@@ -849,7 +840,7 @@ export class PharmacyService {
       if (owed < 1) throw new BadRequestException("This client has nothing on account.");
       if (body.amountCents > owed) throw new BadRequestException("That is more than this client owes.");
       const applied = allocateCredit(open, body.amountCents);
-      const tender = await paymentFields(tx, user.tenantId, body.method, body.amountCents, patientId);
+      const tender = await paymentFields(tx, user.tenantId, body.method, body.amountCents, patientId, this.requireBranch(user));
       const payment = await tx.accountPayment.create({
         data: {
           tenantId: user.tenantId,
@@ -889,6 +880,7 @@ export class PharmacyService {
   async aged(user: StaffPrincipal) {
     assertFeature(user, "patients");
     assertFeature(user, "sales");
+    assertPermission(user, "clientAged");
     const [sales, payments] = await Promise.all([
       this.prisma.sale.findMany({
         where: { tenantId: user.tenantId, ...this.place(user), paymentMethod: "credit", patientId: { not: null } },
@@ -939,7 +931,6 @@ export class PharmacyService {
 
   async refundAll(user: StaffPrincipal, id: string, body: RefundAllDto) {
     assertFeature(user, "sales");
-    assertRole(user, TILL_ROLES);
     assertPermission(user, "refund");
     return this.prisma.$transaction(async (tx) => {
       const sale = await this.ownedSale(user.tenantId, id, tx);
@@ -977,7 +968,6 @@ export class PharmacyService {
 
   async refundSale(user: StaffPrincipal, id: string, body: RefundSaleDto) {
     assertFeature(user, "sales");
-    assertRole(user, TILL_ROLES);
     assertPermission(user, "refund");
     return this.prisma.$transaction(async (tx) => {
       const sale = await this.ownedSale(user.tenantId, id, tx);
@@ -1013,7 +1003,6 @@ export class PharmacyService {
 
   async replaceSale(user: StaffPrincipal, id: string, body: ReplaceSaleDto) {
     assertFeature(user, "sales");
-    assertRole(user, TILL_ROLES);
     assertPermission(user, "refund");
     return this.prisma.$transaction(async (tx) => {
       const sale = await this.ownedSale(user.tenantId, id, tx);
@@ -1025,7 +1014,7 @@ export class PharmacyService {
       const medicine = await tx.medicine.findFirst({ where: { id: body.medicineId, tenantId: user.tenantId } });
       if (!medicine) throw new NotFoundException("Medicine not found");
       await returnStock(tx, user.tenantId, item.medicineId, body.quantity, item.batches, sale.receiptNo, sale.branchId);
-      const takes = await consumeStock(tx, user.tenantId, medicine.id, body.replacementQuantity, "replace", sale.receiptNo, sale.branchId);
+      const takes = await consumeStock(tx, user.tenantId, medicine.id, body.replacementQuantity, "replace", sale.receiptNo, sale.branchId, medicine.name);
       const returnedCents = item.unitPriceCents * body.quantity;
       const givenCents = medicine.unitPriceCents * body.replacementQuantity;
       await tx.saleItem.create({
@@ -1081,12 +1070,13 @@ export class PharmacyService {
 
   async suppliers(user: StaffPrincipal) {
     assertFeature(user, "suppliers");
+    assertAny(user, ["suppliers", "purchases", "wholesalers"]);
     return this.prisma.supplier.findMany({ where: { tenantId: user.tenantId }, orderBy: { name: "asc" } });
   }
 
   async createSupplier(user: StaffPrincipal, body: CreateSupplierDto) {
     assertFeature(user, "suppliers");
-    assertRole(user, ["owner"]);
+    assertPermission(user, "suppliers");
     return this.prisma.supplier.create({
       data: {
         tenantId: user.tenantId,
@@ -1104,6 +1094,7 @@ export class PharmacyService {
 
   async supplierProfile(user: StaffPrincipal, id: string) {
     assertFeature(user, "suppliers");
+    assertAny(user, ["suppliers", "purchases", "wholesalers"]);
     const supplier = await this.prisma.supplier.findFirst({ where: { id, tenantId: user.tenantId } });
     if (!supplier) throw new NotFoundException("Supplier not found");
     const [purchases, purchaseCount, open] = await Promise.all([
@@ -1126,7 +1117,7 @@ export class PharmacyService {
 
   async updateSupplier(user: StaffPrincipal, id: string, body: UpdateSupplierDto) {
     assertFeature(user, "suppliers");
-    assertRole(user, ["owner"]);
+    assertPermission(user, "suppliers");
     const supplier = await this.prisma.supplier.findFirst({ where: { id, tenantId: user.tenantId } });
     if (!supplier) throw new NotFoundException("Supplier not found");
     return this.prisma.supplier.update({
@@ -1146,6 +1137,7 @@ export class PharmacyService {
 
   async orderList(user: StaffPrincipal) {
     assertFeature(user, "suppliers");
+    assertPermission(user, "orders");
     const since = new Date();
     since.setDate(since.getDate() - 30);
     const now = Date.now();
@@ -1242,6 +1234,7 @@ export class PharmacyService {
 
   async supplierAged(user: StaffPrincipal) {
     assertFeature(user, "suppliers");
+    assertPermission(user, "wholesalers");
     const [purchases, payments] = await Promise.all([
       this.prisma.purchase.findMany({
         where: { tenantId: user.tenantId, ...this.place(user), supplierId: { not: null } },
@@ -1291,7 +1284,7 @@ export class PharmacyService {
 
   async paySupplier(user: StaffPrincipal, supplierId: string, body: AccountPaymentDto) {
     assertFeature(user, "suppliers");
-    assertRole(user, ["owner", "manager"]);
+    assertPermission(user, "wholesalers");
     const supplier = await this.prisma.supplier.findFirst({ where: { id: supplierId, tenantId: user.tenantId } });
     if (!supplier) throw new NotFoundException("Supplier not found");
     const closing = await this.prisma.$transaction(async (tx) => {
@@ -1300,7 +1293,7 @@ export class PharmacyService {
       if (owed < 1) throw new BadRequestException("This supplier has nothing outstanding.");
       if (body.amountCents > owed) throw new BadRequestException("That is more than this supplier is owed.");
       const applied = allocateSupplier(open, body.amountCents);
-      const tender = await paymentFields(tx, user.tenantId, body.method, body.amountCents);
+      const tender = await paymentFields(tx, user.tenantId, body.method, body.amountCents, null, this.requireBranch(user));
       const payment = await tx.supplierPayment.create({
         data: {
           tenantId: user.tenantId,
@@ -1339,23 +1332,43 @@ export class PharmacyService {
 
   async staff(user: StaffPrincipal) {
     assertRole(user, ["owner"]);
-    const people = await this.prisma.tenantUser.findMany({
-      where: { tenantId: user.tenantId },
-      select: { id: true, name: true, email: true, role: true, permissions: true, createdAt: true, branch: { select: { id: true, name: true } } },
-      orderBy: { name: "asc" },
-    });
+    const [people, tenant, places] = await Promise.all([
+      this.prisma.tenantUser.findMany({
+        where: { tenantId: user.tenantId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          createdAt: true,
+          branch: { select: { id: true, name: true } },
+          staffBranches: { select: { branch: { select: { id: true, name: true } } } },
+        },
+        orderBy: { name: "asc" },
+      }),
+      this.prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { roleAccess: true } }),
+      this.prisma.branch.findMany({ where: { tenantId: user.tenantId }, select: { id: true, name: true }, orderBy: { createdAt: "asc" } }),
+    ]);
+    const catalog = roleCatalog(tenant?.roleAccess);
     return {
       seats: user.seats,
       used: people.length,
-      staff: people.map((person) => ({
-        id: person.id,
-        name: person.name,
-        email: person.email,
-        role: person.role,
-        permissions: staffPermissions(person.role, person.permissions),
-        branch: person.branch,
-        createdAt: person.createdAt,
-      })),
+      roles: catalog.map((role) => ({ id: role.id, label: role.label, enabled: role.enabled })),
+      places,
+      staff: people.map((person) => {
+        const assigned = person.staffBranches.map((link) => link.branch);
+        const branches = assigned.length ? assigned : person.branch ? [person.branch] : [];
+        return {
+          id: person.id,
+          name: person.name,
+          email: person.email,
+          role: person.role,
+          permissions: accessFor(person.role, tenant?.roleAccess),
+          branch: branches[0] || null,
+          branches,
+          createdAt: person.createdAt,
+        };
+      }),
     };
   }
 
@@ -1365,20 +1378,28 @@ export class PharmacyService {
     if (count >= user.seats) {
       throw new ConflictException(`This license includes ${user.seats} seats`);
     }
+    await this.requireOpenRole(user.tenantId, body.role);
+    const branchIds = user.features.includes("branches") ? await this.ownedBranchIds(user.tenantId, body.branchIds) : [];
     const passwordHash = await bcrypt.hash(body.password, 10);
     try {
-      await this.prisma.tenantUser.create({
-        data: {
-          tenantId: user.tenantId,
-          name: body.name.trim(),
-          email: body.email.toLowerCase(),
-          role: body.role,
-          branchId: user.features.includes("branches") ? this.requireBranch(user) : null,
-          permissions: JSON.stringify(staffPermissions(body.role, JSON.stringify(body.permissions))),
-          passwordHash,
-        },
+      await this.prisma.$transaction(async (tx) => {
+        const person = await tx.tenantUser.create({
+          data: {
+            tenantId: user.tenantId,
+            name: body.name.trim(),
+            email: body.email.toLowerCase(),
+            role: body.role,
+            branchId: branchIds.length === 1 ? branchIds[0] : null,
+            permissions: "[]",
+            passwordHash,
+          },
+        });
+        if (branchIds.length) {
+          await tx.staffBranch.createMany({ data: branchIds.map((branchId) => ({ staffId: person.id, branchId })) });
+        }
       });
-    } catch {
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
       throw new ConflictException("That email is already on the staff list");
     }
     return this.staff(user);
@@ -1389,26 +1410,41 @@ export class PharmacyService {
     const person = await this.prisma.tenantUser.findFirst({ where: { id, tenantId: user.tenantId } });
     if (!person) throw new NotFoundException("That person is not on the staff list");
     if (person.role === "owner") throw new BadRequestException("The owner account keeps full access");
-    await this.prisma.tenantUser.update({
-      where: { id: person.id },
-      data: {
-        role: body.role,
-        permissions: JSON.stringify(staffPermissions(body.role, JSON.stringify(body.permissions))),
-        ...(body.password ? { passwordHash: await bcrypt.hash(body.password, 10) } : {}),
-      },
+    await this.requireOpenRole(user.tenantId, body.role, person.role);
+    const branchIds = user.features.includes("branches") && body.branchIds ? await this.ownedBranchIds(user.tenantId, body.branchIds) : null;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenantUser.update({
+        where: { id: person.id },
+        data: {
+          role: body.role,
+          ...(branchIds ? { branchId: branchIds.length === 1 ? branchIds[0] : null } : {}),
+          ...(body.password ? { passwordHash: await bcrypt.hash(body.password, 10) } : {}),
+        },
+      });
+      if (branchIds) {
+        await tx.staffBranch.deleteMany({ where: { staffId: person.id } });
+        await tx.staffBranch.createMany({ data: branchIds.map((branchId) => ({ staffId: person.id, branchId })) });
+      }
     });
     return this.staff(user);
   }
 
   async reading(user: StaffPrincipal, all = false) {
     assertFeature(user, "sales");
+    assertAny(user, ["shift", "register", "mainReading"]);
     const combined = all && user.role === "owner" && user.features.includes("branches");
     const place = combined ? {} : this.place(user);
     const today = { gte: startOfToday() };
     const tenantId = user.tenantId;
-    const staffWhere = combined || !user.branchId ? { tenantId } : { tenantId, OR: [{ branchId: user.branchId }, { branchId: null }] };
+    const staffWhere = combined || !user.branchId
+      ? { tenantId }
+      : { tenantId, OR: [{ role: "owner" }, { branchId: user.branchId }, { staffBranches: { some: { branchId: user.branchId } } }] };
     const [people, saleMoney, saleCount, eventMoney, accountMoney, sales, events, payments] = await Promise.all([
-      this.prisma.tenantUser.findMany({ where: staffWhere, select: { id: true, name: true, role: true, branch: { select: { name: true } } }, orderBy: { name: "asc" } }),
+      this.prisma.tenantUser.findMany({
+        where: staffWhere,
+        select: { id: true, name: true, role: true, branch: { select: { name: true } }, staffBranches: { select: { branch: { select: { name: true } } } } },
+        orderBy: { name: "asc" },
+      }),
       this.prisma.sale.groupBy({
         by: ["staffId"],
         where: { tenantId, ...place, createdAt: today, paymentMethod: { not: "credit" } },
@@ -1478,7 +1514,7 @@ export class PharmacyService {
       id: person.id,
       name: person.name,
       role: person.role,
-      branch: person.branch?.name || null,
+      branch: person.staffBranches.length ? person.staffBranches.map((link) => link.branch.name).join(", ") : person.branch?.name || null,
       receipts: receiptsOf(person.id),
       takingsCents: takingsOf(person.id),
     }));
@@ -1668,7 +1704,7 @@ export class PharmacyService {
         where: { tenantId, ...this.place(user), quantity: { gt: 0 }, expiryDate: { lt: new Date() } },
         select: { quantity: true, costCents: true },
       }),
-      user.features.includes("patients") ? this.aged(user) : Promise.resolve([]),
+      user.features.includes("patients") && allows(user, "clientAged") ? this.aged(user) : Promise.resolve([]),
     ]);
 
     const products = new Map<string, { id: string; name: string; quantity: number; soldCents: number; costCents: number }>();
@@ -1811,6 +1847,50 @@ export class PharmacyService {
     };
   }
 
+  async settings(user: StaffPrincipal) {
+    assertRole(user, ["owner"]);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { name: true, code: true, email: true, phone: true, address: true, llPerUsd: true, roleAccess: true },
+    });
+    if (!tenant) throw new NotFoundException("Pharmacy not found");
+    const branches = await this.prisma.branch.findMany({
+      where: { tenantId: user.tenantId },
+      select: { id: true, name: true, llPerUsd: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return {
+      pharmacy: { name: tenant.name, code: tenant.code, email: tenant.email, phone: tenant.phone, address: tenant.address, llPerUsd: tenant.llPerUsd },
+      branches,
+      capabilities: CAPABILITIES,
+      roles: roleCatalog(tenant.roleAccess),
+    };
+  }
+
+  async updateSettings(user: StaffPrincipal, body: UpdateSettingsDto) {
+    assertRole(user, ["owner"]);
+    const data: { name?: string; email?: string | null; phone?: string | null; address?: string | null; llPerUsd?: number; roleAccess?: string } = {};
+    if (body.name !== undefined) data.name = body.name.trim();
+    if (body.email !== undefined) data.email = blank(body.email)?.toLowerCase() ?? null;
+    if (body.phone !== undefined) data.phone = blank(body.phone);
+    if (body.address !== undefined) data.address = blank(body.address);
+    if (body.llPerUsd !== undefined) data.llPerUsd = body.llPerUsd;
+    if (body.roles) {
+      const current = await this.prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { roleAccess: true } });
+      data.roleAccess = storeRoles(this.mergeRoles(roleCatalog(current?.roleAccess), body.roles));
+    }
+    if (Object.keys(data).length) await this.prisma.tenant.update({ where: { id: user.tenantId }, data });
+    for (const rate of body.rates || []) {
+      const updated = await this.prisma.branch.updateMany({
+        where: { id: rate.branchId, tenantId: user.tenantId },
+        data: { llPerUsd: rate.llPerUsd },
+      });
+      if (!updated.count) throw new NotFoundException("Branch not found");
+    }
+    await this.wrote(user, "settings", "Updated the pharmacy settings.");
+    return this.settings(user);
+  }
+
   async branches(user: StaffPrincipal) {
     assertFeature(user, "branches");
     return this.prisma.branch.findMany({ where: { tenantId: user.tenantId }, select: { id: true, name: true }, orderBy: { createdAt: "asc" } });
@@ -1826,6 +1906,63 @@ export class PharmacyService {
     } catch {
       throw new ConflictException("That branch already exists");
     }
+  }
+
+  private mergeRoles(current: RoleRecord[], grants: { role: string; label?: string; access: string[]; enabled: boolean }[]): RoleRecord[] {
+    const seen = new Set<string>();
+    const labels = new Set<string>();
+    const builtin = STAFF_ROLES.map((role) => {
+      const grant = grants.find((item) => item.role === role.id);
+      const previous = current.find((item) => item.id === role.id);
+      seen.add(role.id);
+      labels.add(role.label.toLowerCase());
+      const access = grant ? CAPABILITIES.map((item) => item.id).filter((id) => grant.access.includes(id)) : previous?.access || ROLE_DEFAULTS[role.id];
+      return { id: role.id, label: role.label, access, enabled: grant ? grant.enabled : previous?.enabled !== false, custom: false };
+    });
+    const custom: RoleRecord[] = [];
+    for (const grant of grants) {
+      if (seen.has(grant.role)) continue;
+      if (grant.role === "owner") throw new BadRequestException("The owner role stays on.");
+      const label = grant.label?.trim() || "";
+      if (label.length < 2) throw new BadRequestException("Give the role a name.");
+      if (labels.has(label.toLowerCase())) throw new BadRequestException("That role already exists.");
+      labels.add(label.toLowerCase());
+      seen.add(grant.role);
+      custom.push({
+        id: grant.role,
+        label,
+        access: CAPABILITIES.map((item) => item.id).filter((id) => grant.access.includes(id)),
+        enabled: grant.enabled,
+        custom: true,
+      });
+    }
+    return [...builtin, ...custom];
+  }
+
+  private async visibleBranches(tenantId: string, person: { id: string; role: string; branchId: string | null }) {
+    const branches = await this.prisma.branch.findMany({ where: { tenantId }, select: { id: true, name: true }, orderBy: { createdAt: "asc" } });
+    if (person.role === "owner") return branches;
+    const links = await this.prisma.staffBranch.findMany({ where: { staffId: person.id }, select: { branchId: true } });
+    const allowed = new Set(links.map((link) => link.branchId));
+    if (!allowed.size && person.branchId) allowed.add(person.branchId);
+    if (!allowed.size) return branches;
+    return branches.filter((branch) => allowed.has(branch.id));
+  }
+
+  private async ownedBranchIds(tenantId: string, branchIds?: string[]) {
+    const unique = [...new Set((branchIds || []).filter(Boolean))];
+    if (!unique.length) throw new BadRequestException("Choose at least one branch.");
+    const found = await this.prisma.branch.findMany({ where: { tenantId, id: { in: unique } }, select: { id: true, createdAt: true }, orderBy: { createdAt: "asc" } });
+    if (found.length !== unique.length) throw new BadRequestException("Choose a branch on this pharmacy.");
+    return found.map((branch) => branch.id);
+  }
+
+  private async requireOpenRole(tenantId: string, role: string, keeping?: string) {
+    if (role === keeping) return;
+    if (role === "owner") throw new BadRequestException("The owner account keeps full access");
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { roleAccess: true } });
+    const found = roleCatalog(tenant?.roleAccess).find((item) => item.id === role && item.enabled);
+    if (!found) throw new BadRequestException("That role is turned off.");
   }
 
   private async wrote(user: StaffPrincipal, action: string, summary: string) {
@@ -2085,12 +2222,21 @@ async function paymentFields(
   method: string,
   totalCents: number,
   patientId?: string | null,
+  branchId?: string | null,
 ) {
   if (method === "credit" && !patientId) throw new BadRequestException("Choose a client to put this on account.");
   if (method !== "cash_ll") return { paymentMethod: method, llPerUsd: null as number | null, llAmount: null as number | null };
-  const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { llPerUsd: true } });
-  if (!tenant?.llPerUsd) throw new BadRequestException("Set how many lira equal one dollar before taking lira.");
-  return { paymentMethod: method, llPerUsd: tenant.llPerUsd, llAmount: liraOf(totalCents, tenant.llPerUsd) };
+  let rate = 0;
+  if (branchId) {
+    const branch = await tx.branch.findFirst({ where: { id: branchId, tenantId }, select: { llPerUsd: true } });
+    rate = branch?.llPerUsd || 0;
+  }
+  if (!rate) {
+    const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { llPerUsd: true } });
+    rate = tenant?.llPerUsd || 0;
+  }
+  if (!rate) throw new BadRequestException("Set the lira rate in Settings before taking lira.");
+  return { paymentMethod: method, llPerUsd: rate, llAmount: liraOf(totalCents, rate) };
 }
 
 function returnedQty(sale: { events: { lines: { saleItemId: string | null; direction: string; quantity: number }[] }[] }, saleItemId: string) {
@@ -2109,12 +2255,26 @@ async function consumeStock(
   reason = "sale",
   note?: string,
   branchId?: string | null,
+  label = "This product",
 ) {
   const batches = await tx.stockBatch.findMany({
     where: { tenantId, medicineId, quantity: { gt: 0 }, ...(branchId ? { branchId } : {}) },
     orderBy: { expiryDate: "asc" },
   });
   const now = new Date();
+  const expiredQty = batches
+    .filter((batch) => batch.expiryDate.getTime() <= now.getTime())
+    .reduce((sum, batch) => sum + batch.quantity, 0);
+  if (expiredQty > 0) {
+    const inDate = batches
+      .filter((batch) => batch.expiryDate.getTime() > now.getTime())
+      .reduce((sum, batch) => sum + batch.quantity, 0);
+    throw new BadRequestException(
+      inDate < 1
+        ? `${label} is expired. It cannot be sold.`
+        : `${label} has expired packs on the shelf. Write them off before selling it.`,
+    );
+  }
   const usable = batches.filter((batch) => batch.expiryDate.getTime() > now.getTime());
   let remaining = quantity;
   const takes: { batchId: string; quantity: number }[] = [];

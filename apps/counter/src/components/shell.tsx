@@ -80,6 +80,14 @@ function Mark({ section }: { section: Section }) {
       </svg>
     );
   }
+  if (section === "settings") {
+    return (
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 3.5v2.2M12 18.3v2.2M4.8 6.2l1.6 1.6M17.6 16.2l1.6 1.6M3.5 12h2.2M18.3 12h2.2M4.8 17.8l1.6-1.6M17.6 7.8l1.6-1.6" />
+      </svg>
+    );
+  }
   if (section === "employeeLog") {
     return (
       <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -118,6 +126,7 @@ const titles: Record<Section, { title: string; detail: string }> = {
   reports: { title: "Reports", detail: "What sold, what it cost, and what is still owed" },
   employeeLog: { title: "Employee log", detail: "Who signed in, who signed out, and what they did" },
   staff: { title: "Staff", detail: "Seats on this license, and what each person can do" },
+  settings: { title: "Settings", detail: "The pharmacy, the lira rate, and who can sign in" },
 };
 
 export function Shell({
@@ -194,20 +203,28 @@ export function Shell({
     return () => window.removeEventListener("pharmacyos-badges", refresh);
   }, [session, section]);
 
+  const can = (capability: string) => allowed(session, capability);
   const items: { id: Section; label: string; badge?: number }[] = [
-    { id: "today", label: "Shift" },
-    { id: "register", label: "Register" },
-    { id: "stock", label: "Stock", badge: badges.expired || badges.low },
-    { id: "patients", label: "Clients" },
-    ...(features.includes("patients") ? [{ id: "aged" as const, label: "Client aged", badge: badges.aged }] : []),
-    ...(features.includes("prescriptions") ? [{ id: "prescriptions" as const, label: "Prescriptions", badge: badges.scripts }] : []),
-    ...(features.includes("suppliers") ? [{ id: "suppliers" as const, label: "Suppliers" }] : []),
-    ...(features.includes("suppliers") ? [{ id: "wholesalers" as const, label: "Wholesaler aged", badge: badges.wholesalers }] : []),
-    ...(features.includes("suppliers") ? [{ id: "orders" as const, label: "To order", badge: badges.orders }] : []),
-    ...(features.includes("reports") && allowed(session, "reports") ? [{ id: "reports" as const, label: "Reports" }] : []),
+    ...(can("shift") || can("mainReading") ? [{ id: "today" as const, label: "Shift" }] : []),
+    ...(can("register") ? [{ id: "register" as const, label: "Register" }] : []),
+    ...(can("stock") || can("purchases") || can("corrections") ? [{ id: "stock" as const, label: "Stock", badge: badges.expired || badges.low }] : []),
+    ...(can("clients") ? [{ id: "patients" as const, label: "Clients" }] : []),
+    ...(features.includes("patients") && can("clientAged") ? [{ id: "aged" as const, label: "Client aged", badge: badges.aged }] : []),
+    ...(features.includes("prescriptions") && can("prescriptions") ? [{ id: "prescriptions" as const, label: "Prescriptions", badge: badges.scripts }] : []),
+    ...(features.includes("suppliers") && can("suppliers") ? [{ id: "suppliers" as const, label: "Suppliers" }] : []),
+    ...(features.includes("suppliers") && can("wholesalers") ? [{ id: "wholesalers" as const, label: "Wholesaler aged", badge: badges.wholesalers }] : []),
+    ...(features.includes("suppliers") && can("orders") ? [{ id: "orders" as const, label: "To order", badge: badges.orders }] : []),
+    ...(features.includes("reports") && can("reports") ? [{ id: "reports" as const, label: "Reports" }] : []),
     ...(session.user.role === "owner" ? [{ id: "employeeLog" as const, label: "Employee log" }] : []),
     ...(session.user.role === "owner" ? [{ id: "staff" as const, label: "Staff" }] : []),
+    ...(session.user.role === "owner" ? [{ id: "settings" as const, label: "Settings" }] : []),
   ];
+
+  const visible = items.map((item) => item.id).join();
+  useEffect(() => {
+    if (items.some((item) => item.id === section) || !items[0]) return;
+    onSection(items[0].id);
+  }, [visible, section]);
 
   const initials = session.user.name
     .split(" ")
@@ -305,7 +322,11 @@ export function Shell({
             <button className="h-10 whitespace-nowrap rounded-lg px-3 text-sm font-medium text-muted hover:bg-surface hover:text-ink" onClick={onSignOut}>Sign out</button>
           </div>
         </header>
-        <main className="px-4 pb-8 lg:px-8">{children}</main>
+        <main className="px-4 pb-8 lg:px-8">
+          {session.user.role !== "owner" && !items.length ? (
+            <p className="text-sm text-muted">This role is turned off. Ask the owner to turn it back on in Settings.</p>
+          ) : children}
+        </main>
       </div>
     </div>
   );

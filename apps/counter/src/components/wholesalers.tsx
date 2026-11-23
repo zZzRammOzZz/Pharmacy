@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { api, clock, lira, liraOf, money, paymentLabel, Session, when } from "@/lib/api";
+import { allowed, api, clock, lira, liraOf, money, paymentLabel, Session, when } from "@/lib/api";
 import { AgedSupplier, WholesalerClosing } from "@/lib/types";
 import { Field, Notice, Panel, PrimaryButton, control } from "./ui";
 
@@ -15,7 +15,7 @@ export function Wholesalers({ session }: { session: Session }) {
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [closing, setClosing] = useState<WholesalerClosing | null>(null);
-  const canPay = session.user.role === "owner" || session.user.role === "manager";
+  const canPay = allowed(session, "wholesalers");
   const selected = suppliers.find((supplier) => supplier.id === selectedId) || null;
 
   async function load() {
@@ -49,15 +49,12 @@ export function Wholesalers({ session }: { session: Session }) {
       return;
     }
     if (method === "cash_ll" && !(Number(rate) > 0)) {
-      setError("Set how many lira equal one dollar.");
+      setError("Set the lira rate in Settings before taking lira.");
       return;
     }
     setPending(true);
     setError("");
     try {
-      if (method === "cash_ll") {
-        await api("/pharmacy/till", session, { method: "PATCH", body: JSON.stringify({ llPerUsd: Number(rate) }) });
-      }
       const result = await api<{ closing: WholesalerClosing }>(`/pharmacy/suppliers/${selected.id}/payments`, session, {
         method: "POST",
         body: JSON.stringify({ method, amountCents: cents, note: note || undefined }),
@@ -143,10 +140,9 @@ export function Wholesalers({ session }: { session: Session }) {
                 </select>
               </Field>
               {method === "cash_ll" ? (
-                <Field label="Lira per dollar">
-                  <input value={rate} inputMode="numeric" onChange={(event) => setRate(event.target.value.replace(/[^\d]/g, ""))} className={control} />
-                  {Number(rate) > 0 && Number(amount) > 0 ? <span className="mt-1 block text-xs font-normal text-muted">Pay {lira(liraOf(Math.round(Number(amount) * 100), Number(rate)))} LL</span> : null}
-                </Field>
+                <p className="text-sm text-muted sm:col-span-2">
+                  {Number(rate) > 0 && Number(amount) > 0 ? `Pay ${lira(liraOf(Math.round(Number(amount) * 100), Number(rate)))} LL` : "Set the lira rate in Settings before taking lira."}
+                </p>
               ) : null}
               <Field label="Note"><input value={note} onChange={(event) => setNote(event.target.value)} className={control} /></Field>
               <div className="sm:col-span-2">

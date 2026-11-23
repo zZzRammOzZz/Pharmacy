@@ -61,15 +61,12 @@ export function Aged({ session }: { session: Session }) {
       return;
     }
     if (method === "cash_ll" && !(Number(rate) > 0)) {
-      setError("Set how many lira equal one dollar.");
+      setError("Set the lira rate in Settings before taking lira.");
       return;
     }
     setPending(true);
     setError("");
     try {
-      if (method === "cash_ll") {
-        await api("/pharmacy/till", session, { method: "PATCH", body: JSON.stringify({ llPerUsd: Number(rate) }) });
-      }
       const result = await api<ClientProfile & { closing: ClosingReceipt }>(`/pharmacy/patients/${selected.id}/payments`, session, {
         method: "POST",
         body: JSON.stringify({ method, amountCents: cents, note: note || undefined }),
@@ -157,10 +154,9 @@ export function Aged({ session }: { session: Session }) {
               </select>
             </Field>
             {method === "cash_ll" ? (
-              <Field label="Lira per dollar">
-                <input value={rate} inputMode="numeric" onChange={(event) => setRate(event.target.value.replace(/[^\d]/g, ""))} className={control} />
-                {Number(rate) > 0 && Number(amount) > 0 ? <span className="mt-1 block text-xs font-normal text-muted">Collect {lira(liraOf(Math.round(Number(amount) * 100), Number(rate)))} LL</span> : null}
-              </Field>
+              <p className="text-sm text-muted sm:col-span-2">
+                {Number(rate) > 0 && Number(amount) > 0 ? `Collect ${lira(liraOf(Math.round(Number(amount) * 100), Number(rate)))} LL` : "Set the lira rate in Settings before taking lira."}
+              </p>
             ) : null}
             <Field label="Note"><input value={note} onChange={(event) => setNote(event.target.value)} className={control} /></Field>
             <div className="sm:col-span-2">

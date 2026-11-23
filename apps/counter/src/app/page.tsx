@@ -16,6 +16,7 @@ import { Aged } from "@/components/aged";
 import { Reports } from "@/components/reports";
 import { EmployeeLog } from "@/components/employee-log";
 import { Staff } from "@/components/staff";
+import { Settings } from "@/components/settings";
 import { Today } from "@/components/today";
 
 export default function CounterPage() {
@@ -31,6 +32,11 @@ export default function CounterPage() {
   if (!ready) return <div className="min-h-screen bg-paper" />;
   if (!session) return <Login onSuccess={setSession} />;
 
+  function keep(next: Session) {
+    localStorage.setItem("pharmacyos_counter", JSON.stringify(next));
+    setSession(next);
+  }
+
   return (
     <Shell
       session={session}
@@ -41,10 +47,7 @@ export default function CounterPage() {
         localStorage.removeItem("pharmacyos_counter");
         setSession(null);
       }}
-      onSession={(next) => {
-        localStorage.setItem("pharmacyos_counter", JSON.stringify(next));
-        setSession(next);
-      }}
+      onSession={keep}
     >
       {section === "today" ? <Today session={session} onSection={setSection} /> : null}
       {section === "register" ? <Register session={session} /> : null}
@@ -58,6 +61,7 @@ export default function CounterPage() {
       {section === "reports" ? <Reports session={session} /> : null}
       {section === "employeeLog" ? <EmployeeLog session={session} /> : null}
       {section === "staff" ? <Staff session={session} /> : null}
+      {section === "settings" ? <Settings session={session} onSession={keep} /> : null}
     </Shell>
   );
 }

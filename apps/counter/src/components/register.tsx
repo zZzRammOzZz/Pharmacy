@@ -44,12 +44,6 @@ export function Register({ session }: { session: Session }) {
     searchRef.current?.focus();
   }, []);
 
-  async function saveRate(next: string) {
-    const llPerUsd = Number(next);
-    if (!Number.isInteger(llPerUsd) || llPerUsd < 1) return;
-    await api("/pharmacy/till", session, { method: "PATCH", body: JSON.stringify({ llPerUsd }) });
-  }
-
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return medicines;
@@ -59,10 +53,15 @@ export function Register({ session }: { session: Session }) {
   }, [medicines, query]);
 
   function add(medicine: Medicine) {
+    const blocked = expiredSale(medicine);
+    if (blocked) {
+      setError(blocked);
+      return;
+    }
     const current = lines.find((line) => line.medicine.id === medicine.id)?.quantity ?? 0;
-    const available = medicine.inDate ?? medicine.onHand;
+    const available = medicine.inDate;
     if (available < 1 || current + 1 > available) {
-      setError(medicine.onHand > available ? `${medicine.name} has no in-date stock. Expired packs have to be wasted.` : `${medicine.name} does not have enough on the shelf.`);
+      setError(`${medicine.name} does not have enough on the shelf.`);
       return;
     }
     setError("");
@@ -84,9 +83,14 @@ export function Register({ session }: { session: Session }) {
       setLines((currentLines) => currentLines.filter((line) => line.medicine.id !== id));
       return;
     }
-    const available = medicine.inDate ?? medicine.onHand;
+    const blocked = expiredSale(medicine);
+    if (blocked) {
+      setError(blocked);
+      return;
+    }
+    const available = medicine.inDate;
     if (quantity > available) {
-      setError(`Only ${available} ${medicine.name} in date.`);
+      setError(`Only ${available} ${medicine.name} on the shelf.`);
       return;
     }
     setError("");
@@ -102,13 +106,12 @@ export function Register({ session }: { session: Session }) {
       return;
     }
     if (method === "cash_ll" && (!Number.isInteger(Number(rate)) || Number(rate) < 1)) {
-      setError("Set how many lira equal one dollar.");
+      setError("Set the lira rate in Settings before taking lira.");
       return;
     }
     setPending(true);
     setError("");
     try {
-      if (method === "cash_ll") await saveRate(rate);
       const sale = await api<Sale>("/pharmacy/sales", session, {
         method: "POST",
         body: JSON.stringify({
@@ -169,7 +172,9 @@ export function Register({ session }: { session: Session }) {
                       <span className="mt-0.5 block text-xs text-muted">{medicine.sku}{medicine.barcode ? ` · ${medicine.barcode}` : ""}</span>
                     </button>
                   </td>
-                  <td className={`px-4 py-3 tabular-nums ${(medicine.inDate ?? medicine.onHand) <= medicine.reorderLevel ? "text-[#ffb4ab]" : ""}`}>{medicine.inDate ?? medicine.onHand}</td>
+                  <td className={`px-4 py-3 tabular-nums ${medicine.onHand > medicine.inDate || medicine.inDate <= medicine.reorderLevel ? "text-[#ffb4ab]" : ""}`}>
+                    {medicine.onHand > medicine.inDate ? "Expired" : medicine.inDate}
+                  </td>
                   <td className="px-4 py-3 text-right tabular-nums">{money(medicine.unitPriceCents)}</td>
                 </tr>
               ))}
@@ -226,8 +231,6 @@ export function Register({ session }: { session: Session }) {
               method={method}
               onMethod={setMethod}
               rate={rate}
-              onRate={setRate}
-              onRateCommit={(next) => saveRate(next).catch((err: Error) => setError(err.message))}
               totalCents={total}
               allowCredit={Boolean(patientId)}
             />
@@ -279,4 +282,10 @@ export function Register({ session }: { session: Session }) {
       </div>
     </div>
   );
+}
+
+function expiredSale(medicine: Medicine) {
+  if (medicine.onHand <= medicine.inDate) return "";
+  if (medicine.inDate < 1) return `${medicine.name} is expired. It cannot be sold.`;
+  return `${medicine.name} has expired packs on the shelf. Write them off before selling it.`;
 }

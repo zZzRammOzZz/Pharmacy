@@ -118,15 +118,12 @@ export function Patients({ session }: { session: Session }) {
       return;
     }
     if (payMethod === "cash_ll" && (!Number.isInteger(Number(rate)) || Number(rate) < 1)) {
-      setError("Set how many lira equal one dollar.");
+      setError("Set the lira rate in Settings before taking lira.");
       return;
     }
     setPaying(true);
     setError("");
     try {
-      if (payMethod === "cash_ll") {
-        await api("/pharmacy/till", session, { method: "PATCH", body: JSON.stringify({ llPerUsd: Number(rate) }) });
-      }
       const next = await api<ClientProfile>(`/pharmacy/patients/${profile.id}/payments`, session, {
         method: "POST",
         body: JSON.stringify({ method: payMethod, amountCents: cents, note: payNote || undefined }),
@@ -228,10 +225,9 @@ export function Patients({ session }: { session: Session }) {
                   </select>
                 </Field>
                 {payMethod === "cash_ll" ? (
-                  <Field label="Lira per dollar">
-                    <input value={rate} inputMode="numeric" onChange={(event) => setRate(event.target.value.replace(/[^\d]/g, ""))} className={control} placeholder="89500" />
-                    {Number(rate) > 0 && Number(amount) > 0 ? <span className="mt-1 block text-xs font-normal text-muted">Collect {lira(liraOf(Math.round(Number(amount) * 100), Number(rate)))} LL</span> : null}
-                  </Field>
+                  <p className="text-sm text-muted sm:col-span-2">
+                    {Number(rate) > 0 && Number(amount) > 0 ? `Collect ${lira(liraOf(Math.round(Number(amount) * 100), Number(rate)))} LL` : "Set the lira rate in Settings before taking lira."}
+                  </p>
                 ) : null}
                 <Field label="Note"><input value={payNote} onChange={(event) => setPayNote(event.target.value)} className={control} /></Field>
                 <div className="sm:col-span-2"><PrimaryButton pending={paying}>Receive on account</PrimaryButton></div>

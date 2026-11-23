@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { api, money, Session, when } from "@/lib/api";
+import { allowed, api, money, Session, when } from "@/lib/api";
 import { Batch, Medicine, Supplier } from "@/lib/types";
 import { Dialog, Field, Notice, Panel, PrimaryButton, control, newButton, quietSubmit } from "./ui";
 
@@ -136,15 +136,16 @@ export function Stock({ session }: { session: Session }) {
   const [wasteQuery, setWasteQuery] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
-  const canEdit = session.user.role === "owner" || session.user.role === "pharmacist";
-  const canCorrect = session.user.role === "owner" || session.user.role === "manager";
+  const canEdit = allowed(session, "stock");
+  const canPurchase = allowed(session, "purchases");
+  const canCorrect = allowed(session, "corrections");
 
   async function load() {
     const [medicines, purchaseRows, adjustmentRows, wasteRows] = await Promise.all([
       api<Medicine[]>("/pharmacy/medicines", session),
-      api<Purchase[]>("/pharmacy/purchases", session),
-      api<Movement[]>("/pharmacy/movements?kind=adjustment", session),
-      api<Movement[]>("/pharmacy/movements?kind=waste", session),
+      canPurchase || canCorrect ? api<Purchase[]>("/pharmacy/purchases", session) : Promise.resolve([]),
+      canEdit || canCorrect ? api<Movement[]>("/pharmacy/movements?kind=adjustment", session) : Promise.resolve([]),
+      canEdit || canCorrect ? api<Movement[]>("/pharmacy/movements?kind=waste", session) : Promise.resolve([]),
     ]);
     setRows(medicines);
     setPurchases(purchaseRows);
@@ -160,6 +161,15 @@ export function Stock({ session }: { session: Session }) {
   useEffect(() => {
     load().catch((err: Error) => setError(err.message));
   }, [session.branchId]);
+
+  useEffect(() => {
+    const open = [
+      ...(canEdit ? ["catalog" as const] : []),
+      ...(canPurchase || canCorrect ? ["purchases" as const] : []),
+      ...(canEdit ? ["adjust" as const, "waste" as const] : []),
+    ];
+    if (!open.includes(tab) && open[0]) setTab(open[0]);
+  }, [canEdit, canPurchase, canCorrect, tab]);
 
   const shelf = useMemo(() => {
     const batches: ShelfBatch[] = [];
@@ -555,11 +565,11 @@ export function Stock({ session }: { session: Session }) {
       <div className="flex flex-wrap gap-2">
         {(
           [
-            ["catalog", "Catalog"],
-            ["purchases", "Goods in"],
-            ["adjust", "Adjustments"],
-            ["waste", "Waste"],
-          ] as const
+            ...(canEdit ? [["catalog", "Catalog"] as const] : []),
+            ...(canPurchase || canCorrect ? [["purchases", "Goods in"] as const] : []),
+            ...(canEdit ? [["adjust", "Adjustments"] as const] : []),
+            ...(canEdit ? [["waste", "Waste"] as const] : []),
+          ]
         ).map(([id, label]) => (
           <button
             key={id}

@@ -9,7 +9,7 @@ import { JwtService } from "@nestjs/jwt";
 import { decodeLicenseToken, verifyLicense } from "@pharmacyos/license-sdk";
 import { LicenseKeysService } from "../license/license-keys.service";
 import { PrismaService } from "../prisma/prisma.module";
-import { STAFF_PERMISSIONS } from "./dto";
+import { accessFor } from "./access";
 
 export interface StaffPrincipal {
   sub: string;
@@ -53,12 +53,13 @@ export class PharmacyGuard implements CanActivate {
       throw new UnauthorizedException("License token required");
     }
 
-    const [license, staff] = await Promise.all([
+    const [license, staff, tenant] = await Promise.all([
       loadActiveLicense(this.prisma, this.keys, token, payload.tenantId),
       this.prisma.tenantUser.findFirst({
         where: { id: payload.sub, tenantId: payload.tenantId },
-        select: { role: true, name: true, email: true, permissions: true, branchId: true },
+        select: { id: true, role: true, name: true, email: true, branchId: true },
       }),
+      this.prisma.tenant.findUnique({ where: { id: payload.tenantId }, select: { roleAccess: true } }),
     ]);
     if (!staff) throw new UnauthorizedException("Sign in required");
     const branchId = await activeBranch(this.prisma, license.features, payload.tenantId, staff, request.headers["x-branch-id"]);
@@ -67,7 +68,7 @@ export class PharmacyGuard implements CanActivate {
       role: staff.role,
       name: staff.name,
       email: staff.email,
-      permissions: staffPermissions(staff.role, staff.permissions),
+      permissions: accessFor(staff.role, tenant?.roleAccess),
       features: license.features,
       seats: license.seats,
       plan: license.plan,
@@ -116,16 +117,22 @@ async function activeBranch(
   prisma: PrismaService,
   features: string[],
   tenantId: string,
-  staff: { role: string; branchId: string | null },
+  staff: { id: string; role: string; branchId: string | null },
   header: unknown,
 ) {
   if (!features.includes("branches")) return null;
-  if (staff.branchId) return staff.branchId;
   const requested = typeof header === "string" ? header : "";
-  if (staff.role === "owner" && requested === "all") return null;
   const branches = await prisma.branch.findMany({ where: { tenantId }, select: { id: true }, orderBy: { createdAt: "asc" } });
-  if (branches.some((branch) => branch.id === requested)) return requested;
-  return branches[0]?.id || null;
+  if (staff.role === "owner") {
+    if (requested === "all") return null;
+    if (branches.some((branch) => branch.id === requested)) return requested;
+    return branches[0]?.id || null;
+  }
+  if (staff.branchId && branches.some((branch) => branch.id === staff.branchId)) return staff.branchId;
+  const links = await prisma.staffBranch.findMany({ where: { staffId: staff.id }, select: { branchId: true } });
+  const allowed = branches.filter((branch) => links.some((link) => link.branchId === branch.id));
+  if (allowed.some((branch) => branch.id === requested)) return requested;
+  return allowed[0]?.id || branches[0]?.id || null;
 }
 
 export function assertFeature(user: StaffPrincipal, feature: string) {
@@ -140,18 +147,12 @@ export function assertRole(user: StaffPrincipal, roles: string[]) {
   }
 }
 
-export function staffPermissions(role: string, stored?: string | null) {
-  if (role === "owner") return [...STAFF_PERMISSIONS];
-  try {
-    const parsed = JSON.parse(stored || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return STAFF_PERMISSIONS.filter((key) => parsed.includes(key));
-  } catch {
-    return [];
-  }
-}
-
 export function assertPermission(user: StaffPrincipal, permission: string) {
   if (user.role === "owner" || user.permissions.includes(permission)) return;
+  throw new ForbiddenException("The owner has not given you that access");
+}
+
+export function assertAny(user: StaffPrincipal, capabilities: string[]) {
+  if (user.role === "owner" || capabilities.some((item) => user.permissions.includes(item))) return;
   throw new ForbiddenException("The owner has not given you that access");
 }

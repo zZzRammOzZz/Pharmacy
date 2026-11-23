@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, money, Session, when } from "@/lib/api";
+import { allowed, api, money, Session, when } from "@/lib/api";
 import { Supplier, SupplierProfile } from "@/lib/types";
 import { Dialog, Field, Notice, Panel, PrimaryButton, control, newButton, quietSubmit } from "./ui";
 
@@ -13,7 +13,7 @@ export function Suppliers({ session }: { session: Session }) {
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-  const canEdit = session.user.role === "owner";
+  const canEdit = allowed(session, "suppliers");
 
   async function loadList() {
     const suppliers = await api<Supplier[]>("/pharmacy/suppliers", session);

@@ -13,7 +13,7 @@ import {
   RefundAllDto,
   RefundSaleDto,
   ReplaceSaleDto,
-  SetRateDto,
+  UpdateSettingsDto,
   TakePaymentDto,
   CreateBranchDto,
   CreateStaffDto,
@@ -185,16 +185,22 @@ export class PharmacyController {
     return this.pharmacy.dispense(request.user, id, body);
   }
 
+  @Get("settings")
+  @UseGuards(PharmacyGuard)
+  settings(@Req() request: { user: StaffPrincipal }) {
+    return this.pharmacy.settings(request.user);
+  }
+
+  @Patch("settings")
+  @UseGuards(PharmacyGuard)
+  updateSettings(@Req() request: { user: StaffPrincipal }, @Body() body: UpdateSettingsDto) {
+    return this.pharmacy.updateSettings(request.user, body);
+  }
+
   @Get("till")
   @UseGuards(PharmacyGuard)
   till(@Req() request: { user: StaffPrincipal }) {
     return this.pharmacy.till(request.user);
-  }
-
-  @Patch("till")
-  @UseGuards(PharmacyGuard)
-  setTill(@Req() request: { user: StaffPrincipal }, @Body() body: SetRateDto) {
-    return this.pharmacy.setTill(request.user, body);
   }
 
   @Get("sales")
