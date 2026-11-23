@@ -51,10 +51,16 @@ export async function downloadLicense(id: string) {
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename="(.+)"/);
-  const url = URL.createObjectURL(blob);
+  const filename = match?.[1] || "pharmacy.lic";
+  const file = new File([blob], filename, { type: "application/octet-stream" });
+  const url = URL.createObjectURL(file);
   const link = document.createElement("a");
   link.href = url;
-  link.download = match?.[1] || "pharmacy.lic";
+  link.download = filename;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 1500);
 }

@@ -14,14 +14,21 @@ export function Login({ onSuccess }: { onSuccess: (session: Session) => void }) 
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const file = form.get("license");
-    if (!(file instanceof File) || file.size === 0) {
+    if (!(file instanceof File) || !file.name) {
       setError("Choose the license file issued for this pharmacy.");
       return;
     }
     setPending(true);
     setError("");
     try {
-      const license = JSON.parse(await file.text());
+      const text = await file.text();
+      if (!text.trim()) throw new Error("That file was empty. Download the license again, then choose it from Files.");
+      let license: unknown;
+      try {
+        license = JSON.parse(text);
+      } catch {
+        throw new Error("That file is not the pharmacy license.");
+      }
       const response = await fetch(`${API_URL}/pharmacy/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,17 +106,16 @@ export function Login({ onSuccess }: { onSuccess: (session: Session) => void }) 
               <span className="mb-1.5 block text-xs font-semibold text-muted">Password</span>
               <input name="password" type="password" required autoComplete="current-password" className="h-12 w-full rounded-2xl border border-transparent bg-surface px-4 text-sm shadow-card outline-none focus:border-moss" />
             </label>
-            <label className="block cursor-pointer rounded-2xl border border-dashed border-line bg-surface px-4 py-5 text-center shadow-card">
+            <label className="relative block cursor-pointer rounded-2xl border border-dashed border-line bg-surface px-4 py-5 text-center shadow-card">
               <input
                 name="license"
                 type="file"
-                accept=".lic,application/json"
                 required
-                className="sr-only"
+                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
                 onChange={(event) => setFileName(event.target.files?.[0]?.name || "")}
               />
               <span className="block text-sm font-semibold text-ink">{fileName || "Add the license file"}</span>
-              <span className="mt-1 block text-xs text-muted">The .lic issued for this pharmacy</span>
+              <span className="mt-1 block text-xs text-muted">On iPhone, choose it from Files, in Downloads.</span>
             </label>
           </div>
 

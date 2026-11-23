@@ -94,7 +94,8 @@ export class LicensesController {
     if (!license) throw new NotFoundException("License not found");
     const file = licenseFile(license);
     const filename = `${license.tenant.code}-${license.keyId}.lic`;
-    response.setHeader("Content-Type", "application/json; charset=utf-8");
+    response.setHeader("Content-Type", "application/octet-stream");
+    response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     response.send(JSON.stringify(file, null, 2));
   }
