@@ -153,6 +153,9 @@ model Medicine {
   barcode         String?
   medicineType    String              @default("tablet")
   genericName     String?
+  substanceId     String?
+  substance       Medicine?  @relation("MedicineSubstance", fields: [substanceId], references: [id], onDelete: SetNull)
+  equivalents     Medicine[] @relation("MedicineSubstance")
   form            String?
   strength        String?
   unitPriceCents  Int

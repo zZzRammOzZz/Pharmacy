@@ -19,6 +19,7 @@ export type Medicine = {
   barcode: string | null;
   medicineType: string;
   genericName: string | null;
+  substanceId?: string | null;
   form: string | null;
   strength: string | null;
   unitPriceCents: number;

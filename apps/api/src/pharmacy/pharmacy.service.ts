@@ -192,6 +192,7 @@ export class PharmacyService {
       const coded = await this.prisma.medicine.findFirst({ where: { tenantId: user.tenantId, barcode } });
       if (coded) throw new ConflictException("That barcode is already on another medicine");
     }
+    const root = body.substanceId ? await this.substanceTarget(user.tenantId, "", blank(body.substanceId)) : null;
     return this.prisma.medicine.create({
       data: {
         tenantId: user.tenantId,
@@ -199,7 +200,8 @@ export class PharmacyService {
         barcode,
         medicineType: body.medicineType || "tablet",
         name: body.name.trim(),
-        genericName: body.genericName?.trim(),
+        genericName: root?.name || body.genericName?.trim(),
+        substanceId: root?.id,
         form: body.form?.trim(),
         strength: body.strength?.trim(),
         unitPriceCents: body.unitPriceCents,
@@ -210,7 +212,9 @@ export class PharmacyService {
 
   async updateMedicine(user: StaffPrincipal, id: string, body: UpdateMedicineDto) {
     assertFeature(user, "inventory");
-    assertPermission(user, "stock");
+    const linking = body.substanceId !== undefined && Object.entries(body).every(([key, value]) => key === "substanceId" || value === undefined);
+    if (linking) assertAny(user, ["stock", "purchases"]);
+    else assertPermission(user, "stock");
     const medicine = await this.ownedMedicine(user.tenantId, id);
     const data: {
       name?: string;
@@ -218,6 +222,7 @@ export class PharmacyService {
       barcode?: string | null;
       medicineType?: string;
       genericName?: string | null;
+      substanceId?: string | null;
       strength?: string | null;
       unitPriceCents?: number;
       reorderLevel?: number;
@@ -239,6 +244,11 @@ export class PharmacyService {
     }
     if (body.medicineType !== undefined) data.medicineType = body.medicineType;
     if (body.genericName !== undefined) data.genericName = blank(body.genericName);
+    if (body.substanceId !== undefined) {
+      const root = await this.substanceTarget(user.tenantId, medicine.id, blank(body.substanceId));
+      data.substanceId = root?.id ?? null;
+      data.genericName = root?.name ?? null;
+    }
     if (body.strength !== undefined) data.strength = blank(body.strength);
     if (body.unitPriceCents !== undefined) data.unitPriceCents = body.unitPriceCents;
     if (body.reorderLevel !== undefined) data.reorderLevel = body.reorderLevel;
@@ -1980,6 +1990,15 @@ export class PharmacyService {
     if (!user.features.includes("branches")) return null;
     if (!user.branchId) throw new BadRequestException("Choose a branch before recording that.");
     return user.branchId;
+  }
+
+  private async substanceTarget(tenantId: string, medicineId: string, substanceId: string | null) {
+    if (!substanceId) return null;
+    if (substanceId === medicineId) throw new BadRequestException("Choose another catalog medicine.");
+    const target = await this.ownedMedicine(tenantId, substanceId);
+    const rootId = target.substanceId && target.substanceId !== medicineId ? target.substanceId : target.id;
+    if (rootId === medicineId) throw new BadRequestException("Choose another catalog medicine.");
+    return rootId === target.id ? target : this.ownedMedicine(tenantId, rootId);
   }
 
   private async ownedMedicine(tenantId: string, id: string) {

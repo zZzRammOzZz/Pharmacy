@@ -218,8 +218,8 @@ export function Stock({ session }: { session: Session }) {
   const batchChoices = countable.filter((batch) => {
     const needle = batchQuery.trim().toLowerCase();
     if (!needle) return false;
-    return `${batch.medicine.name} ${batch.medicine.sku} ${batch.medicine.barcode || ""} ${batch.batchNumber} ${batch.serialNumber || ""}`.toLowerCase().includes(needle);
-  }).slice(0, 6);
+    return `${batch.medicine.name} ${batch.medicine.genericName || ""} ${batch.medicine.strength || ""} ${batch.medicine.sku} ${batch.medicine.barcode || ""} ${batch.batchNumber} ${batch.serialNumber || ""}`.toLowerCase().includes(needle);
+  }).slice(0, 8);
 
   const wasteChoices = countable.filter((batch) => {
     const needle = wasteQuery.trim().toLowerCase();
@@ -250,7 +250,6 @@ export function Stock({ session }: { session: Session }) {
         medicineType: form.get("medicineType"),
         barcode: form.get("barcode") || undefined,
         sku: form.get("sku"),
-        genericName: form.get("genericName") || undefined,
         strength: form.get("strength") || undefined,
         unitPriceCents: Math.round(Number(form.get("price")) * 100),
         reorderLevel: Number(form.get("reorderLevel") || 10),
@@ -275,7 +274,6 @@ export function Stock({ session }: { session: Session }) {
         sku: form.get("sku"),
         barcode: String(form.get("barcode") || ""),
         medicineType: form.get("medicineType"),
-        genericName: String(form.get("genericName") || ""),
         strength: String(form.get("strength") || ""),
         unitPriceCents: Math.round(Number(form.get("price")) * 100),
         reorderLevel: Number(form.get("reorderLevel") || 0),
@@ -283,6 +281,20 @@ export function Stock({ session }: { session: Session }) {
     });
     setSaved("Medicine updated.");
     await load();
+  }
+
+  async function linkSubstance(medicineId: string, substanceId: string | null) {
+    setError("");
+    setSaved("");
+    const updated = await api<{ substanceId: string | null; genericName: string | null }>(`/pharmacy/medicines/${medicineId}`, session, {
+      method: "PATCH",
+      body: JSON.stringify({ substanceId: substanceId ?? "" }),
+    });
+    const next = { substanceId: updated.substanceId ?? null, genericName: updated.genericName };
+    setRows((current) => current.map((medicine) => (medicine.id === medicineId ? { ...medicine, ...next } : medicine)));
+    setLineMedicine((current) => (current?.id === medicineId ? { ...current, ...next } : current));
+    setAdjustBatch((current) => (current?.medicine.id === medicineId ? { ...current, medicine: { ...current.medicine, ...next } } : current));
+    setSaved(substanceId ? "Generic linked to the catalog." : "Generic cleared.");
   }
 
   function chooseLine(medicine: Medicine | null) {
@@ -325,7 +337,6 @@ export function Stock({ session }: { session: Session }) {
         medicineType: form.get("medicineType"),
         barcode: form.get("barcode") || undefined,
         sku: form.get("sku"),
-        genericName: form.get("genericName") || undefined,
         strength: form.get("strength") || undefined,
         unitPriceCents: Math.round(Number(form.get("price")) * 100),
         reorderLevel: Number(form.get("reorderLevel") || 10),
@@ -414,6 +425,18 @@ export function Stock({ session }: { session: Session }) {
     setCounted("");
     setAdjustExpiry("");
     setAdjustNote("");
+  }
+
+  function pickBatchQuery(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const needle = batchQuery.trim().toLowerCase();
+    if (!needle) return;
+    const exact = batchChoices.filter((batch) =>
+      [batch.batchNumber, batch.serialNumber || "", batch.medicine.barcode || "", batch.medicine.sku].some((value) => value.toLowerCase() === needle),
+    );
+    const pick = exact.length === 1 ? exact[0] : batchChoices.length === 1 ? batchChoices[0] : null;
+    if (pick) chooseBatch(pick);
   }
 
   async function adjust(event: FormEvent<HTMLFormElement>) {
@@ -630,6 +653,7 @@ export function Stock({ session }: { session: Session }) {
                             {medicine.strength ? <span className="text-muted"> {medicine.strength}</span> : null}
                             <span className="mt-0.5 block text-xs text-muted">
                               {medicine.sku} · {labelOf(types, medicine.medicineType)}
+                              {catalogName(rows, medicine.substanceId) ? ` · ${catalogName(rows, medicine.substanceId)}` : ""}
                               {medicine.barcode ? ` · ${medicine.barcode}` : ""}
                             </span>
                           </td>
@@ -670,7 +694,7 @@ export function Stock({ session }: { session: Session }) {
                                       <Field label="Strength"><input name="strength" defaultValue={medicine.strength || ""} className={control} /></Field>
                                     </div>
                                     <Field label="Barcode"><input name="barcode" defaultValue={medicine.barcode || ""} className={control} /></Field>
-                                    <Field label="Generic name"><input name="genericName" defaultValue={medicine.genericName || ""} className={control} /></Field>
+                                    <p className="text-xs text-muted">Generic: {catalogName(rows, medicine.substanceId) || "Set it from Goods in or Adjustments."}</p>
                                     <Field label="Type">
                                       <select name="medicineType" className={control} defaultValue={medicine.medicineType}>
                                         {types.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -710,7 +734,6 @@ export function Stock({ session }: { session: Session }) {
                 <Field label="Barcode"><input name="barcode" className={control} placeholder="Scan or type" /></Field>
                 <Field label="SKU"><input name="sku" required className={control} /></Field>
                 <Field label="Strength"><input name="strength" className={control} placeholder="500 mg" /></Field>
-                <Field label="Generic name"><input name="genericName" className={control} /></Field>
                 <Field label="Sell price"><input name="price" type="number" min="0" step="0.01" required className={control} /></Field>
                 <Field label="Reorder at"><input name="reorderLevel" type="number" min="0" defaultValue={10} className={control} /></Field>
                 <div className="sm:col-span-2"><PrimaryButton>Add medicine</PrimaryButton></div>
@@ -773,6 +796,7 @@ export function Stock({ session }: { session: Session }) {
                       ) : null}
                     </div>
                     {moved ? <p className="text-xs text-muted">Some of this pack has already moved, so the medicine stays. Quantity has to stay at least {floor}.</p> : null}
+                    <CatalogLink rows={rows} skipId={line.medicineId} linkedId={rows.find((medicine) => medicine.id === line.medicineId)?.substanceId || null} onPick={(id) => linkSubstance(line.medicineId, id).catch((err: Error) => setError(err.message))} />
                     <div className="grid grid-cols-2 gap-2">
                       <Field label="Batch"><input value={line.batchNumber} onChange={(event) => patchLine(line.id, { batchNumber: event.target.value })} required className={control} /></Field>
                       <Field label="Serial"><input value={line.serialNumber} onChange={(event) => patchLine(line.id, { serialNumber: event.target.value })} className={control} placeholder="Optional" /></Field>
@@ -837,7 +861,6 @@ export function Stock({ session }: { session: Session }) {
                   <Field label="SKU"><input name="sku" required defaultValue={suggestSku(createSeed.name)} className={control} /></Field>
                   <Field label="Barcode"><input name="barcode" defaultValue={createSeed.barcode} className={control} placeholder="Scan or type" /></Field>
                 </div>
-                <Field label="Generic name"><input name="genericName" className={control} /></Field>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Sell price"><input name="price" type="number" min="0" step="0.01" required className={control} /></Field>
                   <Field label="Reorder at"><input name="reorderLevel" type="number" min="0" defaultValue={10} className={control} /></Field>
@@ -850,6 +873,7 @@ export function Stock({ session }: { session: Session }) {
                 <Field label="Medicine">
                   <MedicineFinder rows={rows} selected={lineMedicine} onPick={chooseLine} onCreate={beginCreate} focusKey={lineFocus} />
                 </Field>
+                {lineMedicine ? <CatalogLink rows={rows} skipId={lineMedicine.id} linkedId={lineMedicine.substanceId || null} onPick={(id) => linkSubstance(lineMedicine.id, id).catch((err: Error) => setError(err.message))} /> : null}
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Batch number"><input value={lineBatch} onChange={(event) => setLineBatch(event.target.value)} required className={control} /></Field>
                   <Field label="Serial number"><input value={lineSerial} onChange={(event) => setLineSerial(event.target.value)} className={control} placeholder="Optional" /></Field>
@@ -941,22 +965,11 @@ export function Stock({ session }: { session: Session }) {
               </header>
               <form className="grid gap-3 p-4" onSubmit={quietSubmit(adjust, setError)}>
                 <Field label="Pack">
-                  {adjustBatch ? (
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-[#121a17] px-3 py-2 text-sm">
-                      <span>
-                        <span className="font-medium">{adjustBatch.medicine.name}{adjustBatch.medicine.strength ? ` ${adjustBatch.medicine.strength}` : ""}</span>
-                        <span className="mt-0.5 block text-xs text-muted">
-                          {adjustBatch.batchNumber}{adjustBatch.serialNumber ? ` · ${adjustBatch.serialNumber}` : ""} · {adjustBatch.quantity} on hand · exp {when(adjustBatch.expiryDate)}
-                        </span>
-                      </span>
-                      <button type="button" className="text-xs text-muted" onClick={clearBatch}>Change</button>
-                    </div>
-                  ) : (
-                    <input value={batchQuery} onChange={(event) => setBatchQuery(event.target.value)} placeholder="Name, batch, barcode, or serial" className={control} />
-                  )}
+                  <input value={batchQuery} onChange={(event) => setBatchQuery(event.target.value)} onKeyDown={pickBatchQuery} placeholder="Name, generic, batch, barcode, or serial" className={control} />
                 </Field>
-                {!adjustBatch && batchChoices.length ? (
-                  <ul className="overflow-hidden rounded-xl border border-line bg-[#121a17]">
+                {batchQuery.trim() && !batchChoices.length ? <p className="text-sm text-muted">No pack matches that search.</p> : null}
+                {batchChoices.length ? (
+                  <ul className="max-h-64 overflow-auto rounded-xl border border-line bg-[#121a17]">
                     {batchChoices.map((batch) => (
                       <li key={batch.id}>
                         <button type="button" className="block w-full px-3 py-2 text-left text-sm hover:bg-white/5" onClick={() => chooseBatch(batch)}>
@@ -968,6 +981,18 @@ export function Stock({ session }: { session: Session }) {
                     ))}
                   </ul>
                 ) : null}
+                {adjustBatch ? (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-[#121a17] px-3 py-2 text-sm">
+                    <span>
+                      <span className="font-medium">{adjustBatch.medicine.name}{adjustBatch.medicine.strength ? ` ${adjustBatch.medicine.strength}` : ""}</span>
+                      <span className="mt-0.5 block text-xs text-muted">
+                        {adjustBatch.batchNumber}{adjustBatch.serialNumber ? ` · ${adjustBatch.serialNumber}` : ""} · {adjustBatch.quantity} on hand · exp {when(adjustBatch.expiryDate)}
+                      </span>
+                    </span>
+                    <button type="button" className="text-xs text-muted" onClick={clearBatch}>Clear</button>
+                  </div>
+                ) : null}
+                {adjustBatch ? <CatalogLink rows={rows} skipId={adjustBatch.medicine.id} linkedId={adjustBatch.medicine.substanceId || null} onPick={(id) => linkSubstance(adjustBatch.medicine.id, id).catch((err: Error) => setError(err.message))} /> : null}
                 {adjustBatch ? (
                   <>
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -1216,6 +1241,65 @@ function writtenDate(value: string) {
 function suggestSku(name: string) {
   const base = name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 12);
   return base || "NEW";
+}
+
+function catalogName(rows: Medicine[], substanceId?: string | null) {
+  if (!substanceId) return "";
+  const linked = rows.find((medicine) => medicine.id === substanceId);
+  return linked ? `${linked.name}${linked.strength ? ` ${linked.strength}` : ""}` : "";
+}
+
+function CatalogLink({ rows, skipId, linkedId, onPick }: { rows: Medicine[]; skipId: string; linkedId: string | null; onPick: (id: string | null) => void }) {
+  const [query, setQuery] = useState("");
+  const linked = catalogName(rows, linkedId);
+  const needle = query.trim().toLowerCase();
+  const matches = needle
+    ? rows.filter((medicine) => medicine.id !== skipId && `${medicine.name} ${medicine.strength || ""} ${medicine.sku}`.toLowerCase().includes(needle)).slice(0, 6)
+    : [];
+
+  function pickFromQuery(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (matches.length !== 1) return;
+    onPick(matches[0].id);
+    setQuery("");
+  }
+
+  return (
+    <div>
+      <Field label="Generic">
+        <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={pickFromQuery} placeholder="Search the catalog" className={control} />
+      </Field>
+      {matches.length ? (
+        <ul className="mt-2 max-h-48 overflow-auto rounded-xl border border-line bg-[#121a17]">
+          {matches.map((medicine) => (
+            <li key={medicine.id}>
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-white/5"
+                onClick={() => {
+                  onPick(medicine.id);
+                  setQuery("");
+                }}
+              >
+                <span className="font-medium">{medicine.name}</span>
+                {medicine.strength ? <span className="text-muted"> {medicine.strength}</span> : null}
+                <span className="mt-0.5 block text-xs text-muted">{medicine.sku}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {linked ? (
+        <p className="mt-2 text-xs text-muted">
+          Linked to {linked}.
+          <button type="button" className="ml-2 font-semibold text-moss" onClick={() => onPick(null)}>Clear</button>
+        </p>
+      ) : (
+        <p className="mt-2 text-xs text-muted">Pick the catalog medicine with the same substance.</p>
+      )}
+    </div>
+  );
 }
 
 function MedicineFinder({ rows, selected, onPick, onCreate, focusKey = 0 }: { rows: Medicine[]; selected: Medicine | null; onPick: (medicine: Medicine | null) => void; onCreate: (query: string) => void; focusKey?: number }) {

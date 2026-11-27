@@ -23,6 +23,7 @@ export function Register({ session }: { session: Session }) {
   const [autoPrint, setAutoPrint] = useState(false);
   const [method, setMethod] = useState("cash_usd");
   const [rate, setRate] = useState("");
+  const [offer, setOffer] = useState<{ missing: string; options: Medicine[] } | null>(null);
 
   async function load() {
     const [meds, people, recent] = await Promise.all([
@@ -52,18 +53,34 @@ export function Register({ session }: { session: Session }) {
     );
   }, [medicines, query]);
 
+  function substitutes(medicine: Medicine) {
+    return medicines
+      .filter((other) => sameSubstance(medicine, other) && canSell(other))
+      .sort((a, b) => Number(sameStrength(b, medicine)) - Number(sameStrength(a, medicine)) || a.name.localeCompare(b.name));
+  }
+
+  function sameOut(medicine: Medicine) {
+    return [...new Set(medicines.filter((other) => sameSubstance(medicine, other) && !canSell(other)).map((other) => other.name))];
+  }
+
   function add(medicine: Medicine) {
     const blocked = expiredSale(medicine);
-    if (blocked) {
-      setError(blocked);
-      return;
-    }
     const current = lines.find((line) => line.medicine.id === medicine.id)?.quantity ?? 0;
     const available = medicine.inDate;
-    if (available < 1 || current + 1 > available) {
-      setError(`${medicine.name} does not have enough on the shelf.`);
+    if (blocked || available < 1 || current + 1 > available) {
+      const options = substitutes(medicine);
+      if (options.length) {
+        setOffer({ missing: medicine.name, options });
+        setError("");
+        return;
+      }
+      setOffer(null);
+      const out = sameOut(medicine);
+      const also = out.length ? ` ${out.join(", ")} ${out.length === 1 ? "is" : "are"} the same substance and also out.` : "";
+      setError(blocked || `${medicine.name} does not have enough on the shelf.${also}`);
       return;
     }
+    setOffer(null);
     setError("");
     setLines((currentLines) => {
       const existing = currentLines.find((line) => line.medicine.id === medicine.id);
@@ -169,8 +186,9 @@ export function Register({ session }: { session: Session }) {
                     <button className="text-left" onClick={() => add(medicine)}>
                       <span className="font-medium">{medicine.name}</span>
                       {medicine.strength ? <span className="text-muted"> {medicine.strength}</span> : null}
-                      <span className="mt-0.5 block text-xs text-muted">{medicine.sku}{medicine.barcode ? ` · ${medicine.barcode}` : ""}</span>
+                      <span className="mt-0.5 block text-xs text-muted">{medicine.sku}{medicine.genericName ? ` · ${medicine.genericName}` : ""}{medicine.barcode ? ` · ${medicine.barcode}` : ""}</span>
                     </button>
+                    {canSell(medicine) ? null : <Substitutes missing={medicine.name} options={substitutes(medicine)} out={sameOut(medicine)} onPick={add} />}
                   </td>
                   <td className={`px-4 py-3 tabular-nums ${medicine.onHand > medicine.inDate || medicine.inDate <= medicine.reorderLevel ? "text-[#ffb4ab]" : ""}`}>
                     {medicine.onHand > medicine.inDate ? "Expired" : medicine.inDate}
@@ -200,6 +218,18 @@ export function Register({ session }: { session: Session }) {
                 {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}</option>)}
               </select>
             </label>
+            {offer ? (
+              <div className="mt-3 rounded-lg border border-moss/40 bg-moss/10 p-3">
+                <p className="text-sm">{offer.missing} is out of stock. You can sell:</p>
+                <div className="mt-2 grid max-h-64 gap-2 overflow-auto">
+                  {offer.options.map((option) => (
+                    <button key={option.id} type="button" className="h-10 rounded-lg bg-moss px-3 text-sm font-semibold text-[#04281c]" onClick={() => add(option)}>
+                      Sell {option.name}{option.strength ? ` ${option.strength}` : ""}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <table className="mt-3 w-full text-sm">
               <tbody>
                 {lines.length === 0 ? (
@@ -281,6 +311,64 @@ export function Register({ session }: { session: Session }) {
         </section>
       </div>
     </div>
+  );
+}
+
+function canSell(medicine: Medicine) {
+  return medicine.inDate > 0 && !expiredSale(medicine);
+}
+
+function sameStrength(a: Medicine, b: Medicine) {
+  return (a.strength || "").trim().toLowerCase() === (b.strength || "").trim().toLowerCase() && Boolean(a.strength);
+}
+
+function substance(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function sameSubstance(a: Medicine, b: Medicine) {
+  if (a.id === b.id) return false;
+  if (a.substanceId && (a.substanceId === b.id || a.substanceId === b.substanceId)) return true;
+  if (b.substanceId && b.substanceId === a.id) return true;
+  const left = substanceKeys(a);
+  const right = substanceKeys(b);
+  return left.some((one) => right.some((other) => relatedSubstance(one, other)));
+}
+
+function substanceKeys(medicine: Medicine) {
+  return [medicine.genericName || "", medicine.name].map(substanceCore).filter((value) => value.length >= 3);
+}
+
+function substanceCore(value: string) {
+  const words = substance(value).split(" ").filter(Boolean);
+  const kept: string[] = [];
+  for (const word of words) {
+    if (/^\d/.test(word)) break;
+    kept.push(word);
+  }
+  return kept.join(" ");
+}
+
+function relatedSubstance(a: string, b: string) {
+  if (a === b) return true;
+  const [shorter, longer] = a.length < b.length ? [a, b] : [b, a];
+  return longer.startsWith(`${shorter} `);
+}
+
+function Substitutes({ missing, options, out, onPick }: { missing: string; options: Medicine[]; out: string[]; onPick: (medicine: Medicine) => void }) {
+  if (!options.length && !out.length) return null;
+  return (
+    <span className="mt-2 grid max-h-40 gap-1 overflow-auto">
+      {options.length ? <span className="text-[11px] font-medium text-mossdeep">{missing} is out. Sell the same substance:</span> : null}
+      {options.map((medicine) => (
+        <button key={medicine.id} type="button" className="h-8 rounded-lg bg-moss px-2 text-left text-xs font-semibold text-[#04281c]" onClick={() => onPick(medicine)}>
+          Sell {medicine.name}{medicine.strength ? ` ${medicine.strength}` : ""} · {medicine.inDate} in date
+        </button>
+      ))}
+      {options.length || !out.length ? null : (
+        <span className="text-[11px] text-muted">{out.join(", ")} {out.length === 1 ? "is" : "are"} the same substance and also out.</span>
+      )}
+    </span>
   );
 }
 

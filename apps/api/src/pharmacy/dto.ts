@@ -54,6 +54,10 @@ export class CreateMedicineDto {
 
   @IsOptional()
   @IsString()
+  substanceId?: string;
+
+  @IsOptional()
+  @IsString()
   form?: string;
 
   @IsOptional()
@@ -93,6 +97,10 @@ export class UpdateMedicineDto {
   @IsOptional()
   @IsString()
   genericName?: string;
+
+  @IsOptional()
+  @IsString()
+  substanceId?: string;
 
   @IsOptional()
   @IsString()
